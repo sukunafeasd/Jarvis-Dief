@@ -62,6 +62,7 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--public',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True);parser.add_argument('--signing-key',type=Path,required=True)
     parser.add_argument('--runtime-base',type=Path,default=Path(sys.base_prefix));parser.add_argument('--skip-exe',action='store_true')
+    parser.add_argument('--certificate-thumbprint',default='B77C85CDABB34F3C30A9432413A6A6A83D1329C6')
     args=parser.parse_args();source=args.public.resolve();output=args.output.resolve();output.mkdir(parents=True,exist_ok=True)
     if args.signing_key.resolve().is_relative_to(source):raise ValueError('A chave privada nao pode ficar na copia publica.')
     if output.is_relative_to(source):raise ValueError('Artefatos devem ficar fora da copia publica.')
@@ -85,6 +86,9 @@ def main():
             '--exclude-module','PyQt6','--exclude-module','numpy','--exclude-module','google',
             '--exclude-module','sounddevice','--exclude-module','win32com',str(source/'desktop_launcher.py')]
         subprocess.run(command,check=True,cwd=source)
+    if args.certificate_thumbprint:
+        subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(source/'tools/sign_installer.ps1'),
+            '-Path',str(output/'DIEF-JARVIS-Setup.exe'),'-CertificateThumbprint',args.certificate_thumbprint],check=True)
     if not (output/'DIEF-JARVIS-Setup.exe').is_file():raise ValueError('EXE ausente; nao ha release completo.')
     body={'schema':1,'repository':REPOSITORY,'version':VERSION,'application':descriptor(application),'runtime':descriptor(runtime),
         'launcher':descriptor(output/'DIEF-JARVIS-Setup.exe')}

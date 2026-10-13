@@ -41,7 +41,10 @@ configuracao pendente, nao como conexao confirmada.
 Primeira instalacao e reparacao de pacotes ausentes precisam de internet.
 Nao e possivel instalar hardware, autorizar contas ou contornar uma politica
 corporativa de Windows por este fluxo. O UAC do Windows continua obrigatorio.
-O EXE 1.0 nao possui assinatura Authenticode.
+O EXE usa Authenticode com o certificado local autoassinado Equipe Dief.
+O certificado privado nao e exportado; quem compilar fora deste computador
+precisa informar seu proprio certificado com --certificate-thumbprint.
+Nao se instala raiz de confianca nem se modifica politica de protecao do Windows.
 
 Os pacotes Windows usam requirements-win.lock com versoes e hashes do PyPI,
 gerados do ambiente limpo validado. A integridade e conferida pelos RECORDs.

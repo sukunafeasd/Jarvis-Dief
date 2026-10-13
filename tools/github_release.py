@@ -56,7 +56,7 @@ def main():
         if not all((output/name).is_file() for name in required):raise RuntimeError('Artefatos incompletos.')
         release=call(client,'POST','/repos/'+REPOSITORY+'/releases',json={'tag_name':tag,'target_commitish':'main',
             'name':'DIEF JARVIS '+VERSION,'draft':True,'prerelease':False,
-            'body':(BASE/'CHANGELOG.md').read_text(encoding='utf-8')+'\n\nBaixe DIEF-JARVIS-Setup.exe. A primeira preparacao requer internet. O EXE nao tem assinatura Authenticode; o Windows pode exibir aviso de editor desconhecido.'})
+            'body':(BASE/'CHANGELOG.md').read_text(encoding='utf-8')+'\n\nBaixe DIEF-JARVIS-Setup.exe. A primeira preparacao requer internet. O EXE usa o certificado local autoassinado Equipe Dief; outros computadores podem exibir aviso de editor desconhecido. Nenhuma conta pessoal acompanha a distribuicao.'})
         upload=release['upload_url'].split('{')[0]
         for name in required:
             path=output/name

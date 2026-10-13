@@ -25,9 +25,10 @@ O programa cria um atalho DIEF JARVIS e organiza a instalacao em
 | `data/memory` | Memoria, dados e fixados locais |
 | `logs` | Registros para diagnostico |
 
-O instalador nao possui certificado Authenticode: o Windows pode mostrar
-aviso de editor desconhecido. Manifestos de atualizacao sao assinados com
-Ed25519 e os pacotes sao conferidos por SHA-256; isso nao substitui Authenticode.
+O instalador usa por padrao o certificado local autoassinado **Equipe Dief**.
+Outros computadores podem mostrar aviso de editor desconhecido; a assinatura
+nao e um certificado publico nem uma garantia de reputacao no Windows.
+Manifestos de atualizacao usam Ed25519 e os pacotes sao conferidos por SHA-256.
 
 ## Atualizar
 
