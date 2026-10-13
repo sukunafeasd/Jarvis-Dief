@@ -1,0 +1,23 @@
+name: Verificacoes DIEF JARVIS
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencias de teste
+        run: python -m pip install -r requirements.txt
+      - name: Testes de distribuicao e perfil limpo
+        env:
+          PYTHONPATH: tests;.
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest test_official_distribution test_factory_distribution

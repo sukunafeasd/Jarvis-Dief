@@ -1,0 +1,56 @@
+const { chromium } = require('playwright');
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+(async () => {
+  const browser = await chromium.launch({headless: true, args: ['--allow-file-access-from-files']});
+  const page = await browser.newPage({viewport: {width: 1100, height: 720}});
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  await page.goto(pathToFileURL(path.resolve('core/spatial/index.html')).href);
+  await page.waitForFunction(() => document.body.dataset.ready === 'true');
+  const results = [];
+  await page.mouse.click(8,8);
+  if(await page.evaluate(()=>location.hash))throw Error('Empty canvas toggled rest');
+  await page.mouse.click(550,360);
+  if(!await page.evaluate(()=>location.hash.includes('gesture-touch')))throw Error('Core touch missed');
+  const touchHash=await page.evaluate(()=>location.hash);
+  await page.mouse.click(1090,710);
+  if(await page.evaluate(()=>location.hash)!==touchHash)throw Error('Background touch changed gesture');
+  for (const [phase, level] of [['idle', 0], ['listening', 0.35], ['speaking', 0.55], ['thinking', 0.1]]) {
+    await page.evaluate(value => window.updateCore(value), {phase, level});
+    await page.waitForTimeout(450);
+    const pixels = await page.evaluate(() => {
+      const canvas = document.querySelector('canvas');
+      const gl = canvas.getContext('webgl2');
+      const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let lit = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] + pixels[i+1] + pixels[i+2] > 70) lit++;
+      return {lit, phase: document.body.dataset.phase, calls: document.body.dataset.drawCalls};
+    });
+    if (pixels.lit < 1500 || pixels.phase !== phase) throw Error('Blank core or stale state: ' + JSON.stringify(pixels));
+    await page.screenshot({path: `validation/core-${phase}.png`});
+    results.push(pixels);
+  }
+  await page.evaluate(()=>window.updateCore({resting:true,phase:'sleeping',level:0}));
+  await page.waitForTimeout(1100);
+  const sleeping=await page.evaluate(()=>{const c=document.querySelector('canvas'),gl=c.getContext('webgl2'),p=new Uint8Array(gl.drawingBufferWidth*gl.drawingBufferHeight*4);gl.readPixels(0,0,gl.drawingBufferWidth,gl.drawingBufferHeight,gl.RGBA,gl.UNSIGNED_BYTE,p);let lit=0;for(let i=0;i<p.length;i+=4)if(p[i]+p[i+1]+p[i+2]>70)lit++;return lit;});
+  const rest=await page.evaluate(()=>({scale:+document.body.dataset.restScale,depth:+document.body.dataset.restDepth,angle:+document.body.dataset.orbitAngle}));
+  if(rest.scale<.8 || rest.scale>.85 || rest.depth> -1 || sleeping<30)throw Error('Rest should recede moderately with visible dim orbits: '+JSON.stringify({rest,sleeping}));
+  await page.waitForTimeout(350);
+  if(await page.evaluate(()=>+document.body.dataset.orbitAngle)<=rest.angle)throw Error('Rest orbits stopped');
+  await page.mouse.click(550,360);
+  if(await page.evaluate(()=>location.hash)===touchHash)throw Error('Resting core cannot be touched');
+  results.push({rest,sleeping,backgroundClicksIgnored:true,restOrbitsMoving:true});
+  await page.screenshot({path:'validation/core-resting.png'});
+  await page.evaluate(()=>window.updateCore({resting:false,phase:'idle'}));
+  await page.waitForTimeout(900);
+  await page.setViewportSize({width: 420, height: 620});
+  await page.waitForTimeout(300);
+  await page.screenshot({path: 'validation/core-small.png'});
+  if (errors.length) throw Error(errors.join('\n'));
+  fs.writeFileSync('validation/core-results.json', JSON.stringify(results, null, 2));
+  console.log(JSON.stringify(results));
+  await browser.close();
+})().catch(error => {console.error(error); process.exit(1);});
