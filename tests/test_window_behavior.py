@@ -38,6 +38,16 @@ class WindowBehaviorTests(unittest.TestCase):
         finally:
             cursor.restore();self.app.removeEventFilter(cursor);window.deleteLater();other.deleteLater();self.app.processEvents()
 
+    def test_destroyed_owner_removes_global_filter_and_stops_timer(self):
+        from PyQt6 import sip
+        window=QWidget();other=QWidget();cursor=IdleCursor(window)
+        cursor.eventFilter(window,QEvent(QEvent.Type.Close))
+        self.assertTrue(cursor.disposed);self.assertFalse(cursor.timer.isActive())
+        sip.delete(window)
+        self.assertFalse(cursor.owns(other))
+        self.assertFalse(cursor.eventFilter(other,QEvent(QEvent.Type.MouseMove)))
+        other.deleteLater();self.app.processEvents()
+
     def test_admin_entry_can_proceed_only_when_elevated(self):
         with patch.object(elevation,'is_admin',return_value=True),patch.dict('sys.modules',{'tkinter':None}):
             self.assertTrue(elevation.require_admin())

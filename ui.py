@@ -4478,12 +4478,27 @@ class MainWindow(QMainWindow):
         if getattr(self,'_space_view',None): self._space_view.sync({'visible':False})
         super().hideEvent(event)
 
+    def closeEvent(self,event):
+        self._closed_for_shutdown=True
+        app=QApplication.instance()
+        if app:app.removeEventFilter(self)
+        cursor=getattr(self,'_idle_cursor',None)
+        if cursor:cursor.dispose()
+        if hasattr(self,'_ui_sounds'):self._ui_sounds.stop()
+        for timer in self.findChildren(QTimer):timer.stop()
+        if SpatialCoreView:
+            for view in self.findChildren(SpatialCoreView):
+                view.stop();view.close()
+        super().closeEvent(event)
+
     def showEvent(self,event):
         super().showEvent(event)
         if hasattr(self,'_ui_sounds') and self._environment.started:self._ui_sounds.scene(visible=not self.isMinimized())
         if getattr(self,'_space_view',None):self._space_view.sync({'visible':not self.isMinimized()})
 
     def eventFilter(self, watched, event):
+        from PyQt6 import sip
+        if getattr(self,'_closed_for_shutdown',False) or sip.isdeleted(self) or isinstance(watched,QWidget) and sip.isdeleted(watched):return False
         owned=isinstance(watched,QWidget) and (watched is self or self.isAncestorOf(watched))
         settings=getattr(self,'_settings_hub',None)
         owned=owned or isinstance(watched,QWidget) and settings is not None and (watched is settings or settings.isAncestorOf(watched))
