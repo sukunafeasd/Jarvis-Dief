@@ -70,11 +70,6 @@ def export(source,destination):
         data=target.read_bytes()
         if target.suffix not in ('.png','.ico'):data=data.replace(b'\r\n',b'\n')
         manifest[relative.as_posix()]=hashlib.sha256(data).hexdigest()
-    upstream=source/'docs/UPSTREAM-README.md'
-    if not upstream.is_file():upstream=source/'readme.md'
-    if upstream.is_file():
-        target=destination/'docs/UPSTREAM-README.md';shutil.copy2(upstream,target)
-        audit(destination,[Path('docs/UPSTREAM-README.md')],private_literals(source))
     (destination/'PUBLIC-RELEASE.json').write_text(json.dumps({'schema':1,'text_newlines':'LF','files':manifest},indent=2),encoding='utf-8')
     audit(destination,files,private_literals(source))
     return len(files)

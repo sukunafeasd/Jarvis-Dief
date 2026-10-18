@@ -163,7 +163,6 @@ TEXT = {
     "QUIZ: ": "QUESTIONÁRIO: ",
     " correct": " corretas",
     "[F4] Mute  ·  [F11] Fullscreen": "[F4] Microfone · [F11] Tela cheia",
-    "By FatihMakes": "Por FatihMakes",
     "  ·  Tell ": "  ·  Diga ao ",
     " what to do with it": " o que fazer com o arquivo",
     ") loaded": ") carregado",

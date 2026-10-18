@@ -1,6 +1,6 @@
 # Auditoria de interface e sincronizacao
 
-Data: 12/10/2026. Projeto local: Mark-LV-main, DIEF JARVIS.
+Data: 12/10/2026. Projeto local: DIEF JARVIS.
 
 ## Problemas encontrados e corrigidos
 

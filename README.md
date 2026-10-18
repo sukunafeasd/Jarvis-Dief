@@ -73,9 +73,8 @@ O fluxo de codigo-fonte nao faz instalacao do runtime oficial nem atualiza o
 clone automaticamente. Consulte `docs/DISTRIBUICAO-1.0.md` para empacotar e
 publicar versoes assinadas.
 
-## Creditos
+## Licencas
 
-Adaptacao de [MARK LV, de FatihMakes](https://github.com/FatihMakes/Mark-LV),
-com modificacoes para DIEF JARVIS. A licenca original **CC BY-NC 4.0** e os
-creditos permanecem em `LICENSE` e `NOTICE.md`. Uso comercial nao permitido.
-Bibliotecas de terceiros mantem suas proprias licencas.
+O DIEF JARVIS e desenvolvido e mantido pela Equipe Dief. Os avisos de licenca
+de bibliotecas e recursos de terceiros incorporados ao projeto permanecem nos
+respectivos arquivos legais. Uso comercial depende das licencas aplicaveis.

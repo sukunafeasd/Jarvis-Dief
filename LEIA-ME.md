@@ -1,6 +1,6 @@
 # DIEF JARVIS
 
-Assistente de desktop em português brasileiro, adaptado do projeto Mark-LV de FatihMakes. Os créditos, a licença original e os nomes de dependências foram preservados.
+Assistente de desktop em português brasileiro desenvolvido pela Equipe Dief.
 
 ## Abrir
 
