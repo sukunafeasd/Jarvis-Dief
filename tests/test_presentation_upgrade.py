@@ -68,7 +68,7 @@ class PresentationUpgradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(int(await self.page.locator('body').get_attribute('data-geometries')),20)
         self.assertEqual(self.errors,[])
 
-    async def test_spoken_subject_reveals_only_its_detail_and_end_releases_rest(self):
+    async def test_spoken_subject_reveals_only_its_detail_and_end_preserves_rest(self):
         await self.page.goto(self.url+'/presentation.html')
         await self.page.wait_for_function('typeof window.updateCore === "function"')
         await self.page.evaluate("window.updateCore({kind:'gmail',title:'GMAIL',narrationDriven:true,items:[{title:'Reunião de revisão',detail:'Primeiro remetente'},{title:'Documento do projeto',detail:'Segundo remetente'}]})")
@@ -82,7 +82,7 @@ class PresentationUpgradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator('.record p').nth(1).inner_text(),'Segundo remetente')
         await self.page.evaluate('window.finishPresentation()')
         await self.page.wait_for_timeout(1400)
-        self.assertEqual(await self.page.locator('.record p').nth(0).inner_text(),'Primeiro remetente')
+        self.assertEqual(await self.page.locator('.record p').nth(0).inner_text(),'')
         self.assertEqual(self.errors,[])
 
     async def test_news_does_not_jump_on_shared_word_or_future_transcript(self):

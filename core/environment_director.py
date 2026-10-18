@@ -51,11 +51,11 @@ class EnvironmentDirector:
         self.media = {'playing': playback.get('is_playing') is True, 'progress': progress,
                       'duration': duration, 'at': self.clock(), 'title': str(item.get('name') or '')[:160]}
 
-    def start(self, reduced=False):
+    def start(self, reduced=False, delay=0):
         if self.started:
             return
         self.started = True
-        self.entrance = {'at': self.clock(), 'duration': 0 if reduced else 4300, 'cancelAt': None}
+        self.entrance = {'at': self.clock() + (0 if reduced else delay), 'duration': 0 if reduced else 4300, 'cancelAt': None}
 
     def interrupt(self):
         if self.entrance and self.entrance['cancelAt'] is None:
@@ -118,7 +118,6 @@ class EnvironmentDirector:
                 resting=False, reading=False, settings=False):
         # Reading always wins over ambient exploration; the requested mode is retained for return.
         mode = self.override or ('execution' if self.operation == 'running' or phase == 'executing'
-                                 else 'analysis' if phase == 'thinking' or domain in ('system', 'code', 'memory')
                                  else 'assistant')
         if settings or (not self.override and (reading or domain in ('gmail', 'whatsapp', 'news', 'status'))):
             mode = 'focus'

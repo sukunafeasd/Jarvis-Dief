@@ -4,6 +4,11 @@ import sys
 import threading
 import time
 import re
+import queue
+from concurrent.futures import wait, FIRST_COMPLETED
+from core.bounded_work import BoundedWork
+
+_SEARCH_WORK=BoundedWork()
 from pathlib import Path
 
 # ── Gemini grounding quota circuit breaker ────────────────────────────────────
@@ -48,21 +53,49 @@ def _log_gemini_failure(context: str, exc: Exception) -> None:
 
 
 def _run_bounded(fn, timeout: float, label: str = "task"):
-    """Run fn() in a daemon thread; return its result, or None if it overruns."""
-    box = [None]
+    """Return by the deadline; occupied workers continue counting against the cap."""
+    future=None
+    try:
+        future=_SEARCH_WORK.submit(fn)
+        return future.result(timeout=timeout)
+    except (TimeoutError,queue.Full):
+        if future:future.cancel()
+        return None
+    except Exception as error:
+        _log_gemini_failure(label,error)
+        return None
 
-    def _run():
-        try:
-            box[0] = fn()
-        except Exception as e:
-            _log_gemini_failure(label, e)
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    t.join(timeout)
-    if t.is_alive():
-        print(f"[WebSearch] {label} exceeded {timeout:.0f}s — moving on")
-    return box[0]
+def _parallel_bounded(callbacks,timeout,workers=3):
+    values=[None]*len(callbacks);jobs={};deadline=time.monotonic()+timeout
+    next_index=0
+    while (jobs or next_index<len(callbacks)) and time.monotonic()<deadline:
+        while next_index<len(callbacks) and len(jobs)<max(1,workers):
+            try:future=_SEARCH_WORK.submit(callbacks[next_index])
+            except queue.Full:break
+            jobs[future]=next_index;next_index+=1
+        if not jobs:break
+        done,_=wait(jobs,timeout=max(0,deadline-time.monotonic()),return_when=FIRST_COMPLETED)
+        if not done:break
+        for future in done:
+            index=jobs.pop(future)
+            try:values[index]=future.result()
+            except Exception:pass
+    for future in jobs:future.cancel()
+    return values
+
+
+def _localized(records):
+    from core.search_locale import localize_records
+    return _run_bounded(lambda:localize_records(records),6,'Traducao PT-BR') or []
+
+
+def _localized_answer(text):
+    if not text:return None
+    from core.search_locale import portuguese
+    if portuguese(text):return text
+    records=_localized([{'title':'Resposta da pesquisa','snippet':text}])
+    return records[0].get('snippet') if records else None
 
 def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -71,7 +104,7 @@ def _get_base_dir() -> Path:
 
 
 BASE_DIR        = _get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+from memory.config_manager import CONFIG_FILE as API_CONFIG_PATH
 
 
 def _get_api_key() -> str:
@@ -133,7 +166,7 @@ def _ddg_search(query: str, max_results: int = 6) -> list[dict]:
     results = []
     try:
         with DDGS() as ddgs:
-            for r in ddgs.text(query, region="br-pt", max_results=max_results):
+            for r in ddgs.text(query+' em português', region="br-pt", max_results=max_results):
                 results.append({
                     "title":   r.get("title",  ""),
                     "snippet": r.get("body",   ""),
@@ -150,7 +183,7 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
     results = []
     try:
         with DDGS() as ddgs:
-            for r in ddgs.news(query, region="br-pt", max_results=max_results):
+            for r in ddgs.news(query+' em português', region="br-pt", max_results=max_results):
                 results.append({
                     "title":   r.get("title",  ""),
                     "snippet": r.get("body",   ""),
@@ -170,19 +203,14 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
 def fetch_news_package(query=""):
     from core.profile import read_profile
     from core.news_media import thumbnail, article_thumbnail
-    from concurrent.futures import ThreadPoolExecutor
     preferences=read_profile()
     query=query or preferences["news_interests"] or "notícias Brasil mundo hoje"
     topics=[topic.strip() for topic in query.split(',') if topic.strip()][:3]
     def find_records():
         if len(topics)<=1:
-            return _ddg_news(query,preferences['news_count'])
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            futures=[pool.submit(_ddg_news,topic,preferences['news_count']) for topic in topics]
-            batches=[]
-            for future in futures:
-                try:batches.append(future.result(timeout=6))
-                except Exception:batches.append([])
+            return _run_bounded(lambda:_ddg_news(query,preferences['news_count']),9,'Noticias') or []
+        batches=[value or [] for value in _parallel_bounded([
+            lambda topic=topic:_ddg_news(topic,preferences['news_count']) for topic in topics],8)]
         records=[];seen=set()
         for rank in range(preferences['news_count']):
             for batch in batches:
@@ -190,26 +218,23 @@ def fetch_news_package(query=""):
                     record=batch[rank];identity=record.get('url') or record['title']
                     if identity not in seen:records.append(record);seen.add(identity)
         return records
-    records=_run_bounded(find_records,timeout=9,label="Notícias com imagens") or []
+    records=find_records()
     records=records[:preferences["news_count"]]
+    records=_localized(records)
     items=[{"title":r["title"],"detail":r.get("snippet",""),"source":r.get("source",""),"url":r.get("url","")} for r in records]
     if items:
         def image_for(record):
             direct=thumbnail(record.get('image_url','')) if record.get('image_url') else ''
             return direct or article_thumbnail(record.get('url',''))
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            futures={pool.submit(image_for,r):i for i,r in enumerate(records)}
-            for future,index in futures.items():
-                try:
-                    items[index]["image"]=future.result(timeout=5)
-                except Exception:
-                    items[index]["image"]=""
+        images=_parallel_bounded([lambda record=record:image_for(record) for record in records],5)
+        for index,image in enumerate(images):items[index]['image']=image or ''
         illustrated=sorted(zip(records,items),key=lambda pair:not bool(pair[1].get('image')))
         records=[record for record,item in illustrated];items=[item for record,item in illustrated]
         text=_format_news(query,records)
     else:
-        text=_news(query)
-    return {"text":text,"model":{"kind":"news","title":"NOTÍCIAS","items":items,"text":text if not items else "","source":"Fontes consultadas","narrationDriven":True}}
+        text='Não consegui obter notícias em português nesta consulta. Tente novamente mais tarde.'
+    return {"text":text,"model":{"kind":"news","title":"NOTÍCIAS","items":items,"text":text if not items else "","source":"Fontes consultadas · pt-BR","narrationDriven":True,
+        'refresh':{'provider':'news','parameters':{'query':query}}}}
 
 
 def _format_ddg(query: str, results: list[dict]) -> str:
@@ -256,7 +281,7 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
     from core import gemini
 
     response = gemini.call(
-        f"Current world news: {n} headlines. Numbered list, titles only.",
+        f"Noticias atuais do Brasil e do mundo: {n} manchetes em portugues brasileiro. Lista numerada, apenas titulos.",
         tier=gemini.SEARCH,
         config={"tools": [{"google_search": {}}]},
         timeout_ms=30_000,
@@ -290,10 +315,14 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
 def _search(query: str) -> str:
     """Default search — Gemini grounded, DDG fallback."""
     try:
-        return _gemini_search(query)
+        answer=_run_bounded(lambda:_gemini_search(query+'\nResponda em português do Brasil. Priorize o contexto brasileiro, exceto se outro país ou idioma foi solicitado.'),12,'Busca principal')
+        if not answer:raise TimeoutError('Busca principal excedeu o prazo')
+        localized=_localized_answer(answer)
+        if not localized:raise ValueError('Nao consegui traduzir os resultados')
+        return localized
     except Exception as e:
         _log_gemini_failure("Gemini search", e)
-        results = _ddg_search(query)
+        results = _localized(_run_bounded(lambda:_ddg_search(query),6,'Busca alternativa') or [])
         return _format_ddg(query, results)
 
 
@@ -316,17 +345,18 @@ def _news(query: str) -> str:
     ddg_query = query if query else "notícias do mundo hoje"
 
     def _ddg_attempt() -> str:
-        return _format_news(ddg_query, _ddg_news(ddg_query, max_results=8))
+        results=_localized(_ddg_news(ddg_query,max_results=8))
+        return _format_news(ddg_query,results) if results else ''
 
     text = _run_bounded(_ddg_attempt, timeout=5.0, label="DDG news")
-    if text and len(text) > 60 and not text.startswith("No news found"):
+    if text:
         return text
 
     text = _run_bounded(
         lambda: _gemini_search(gemini_query), timeout=6.0, label="Gemini news"
     )
     if text and len(text) > 60:
-        return text
+        return _localized_answer(text) or 'Não consegui apresentar as notícias em português agora.'
 
     return f"Nenhuma notícia encontrada para: {query}"
 
@@ -337,47 +367,61 @@ def _research(query: str) -> str:
     Falls back to a wider DDG fetch.
     """
     research_query = (
-        f"Comprehensive, detailed explanation of: {query}. "
-        "Include background context, key facts, current state, and important nuances."
+        f"Pesquise em detalhes: {query}. Responda em português brasileiro. "
+        "Inclua contexto, fatos, fontes e limites. Priorize o Brasil, sem alterar um país explicitamente solicitado."
     )
     try:
-        return _gemini_search(research_query)
+        answer=_run_bounded(lambda:_gemini_search(research_query),12,'Pesquisa detalhada')
+        if not answer:raise TimeoutError('Pesquisa excedeu o prazo')
+        localized=_localized_answer(answer)
+        if not localized:raise ValueError('Nao consegui traduzir a pesquisa')
+        return localized
     except Exception as e:
         _log_gemini_failure("Gemini research", e)
-        results = _ddg_search(query, max_results=10)
+        results = _localized(_run_bounded(lambda:_ddg_search(query,max_results=10),6,'Pesquisa alternativa') or [])
         return _format_ddg(query, results)
 
 
 def _price(query: str) -> str:
     """Product price lookup — searches for current market prices."""
-    price_query = f"current price of {query} — how much does it cost today"
+    price_query = f"Preço atual de {query}. Responda em português brasileiro. Use mercado brasileiro e reais por padrão, preservando país ou moeda explicitamente solicitados. Cite as fontes."
     try:
-        return _gemini_search(price_query)
+        answer=_run_bounded(lambda:_gemini_search(price_query),12,'Consulta de precos')
+        if not answer:raise TimeoutError('Consulta de precos excedeu o prazo')
+        localized=_localized_answer(answer)
+        if not localized:raise ValueError('Nao consegui traduzir os precos')
+        return localized
     except Exception as e:
         _log_gemini_failure("Gemini price", e)
-        results = _ddg_search(f"{query} price buy", max_results=6)
+        results = _localized(_run_bounded(lambda:_ddg_search(f'{query} preço comprar',max_results=6),6,'Precos alternativos') or [])
         return _format_ddg(query, results)
 
 
 def _compare(items: list[str], aspect: str) -> str:
     query = (
-        f"Compare {', '.join(items)} in terms of {aspect}. "
-        "Give specific facts and data."
+        f"Compare {', '.join(items)} quanto a {aspect}. Responda em português brasileiro. "
+        "Priorize o Brasil sem alterar país explicitamente solicitado. Cite fatos e fontes verificadas."
     )
     try:
-        return _gemini_search(query)
+        answer=_run_bounded(lambda:_gemini_search(query),12,'Comparacao')
+        if not answer:raise TimeoutError('Comparacao excedeu o prazo')
+        localized=_localized_answer(answer)
+        if not localized:raise ValueError('Nao consegui traduzir a comparacao')
+        return localized
     except Exception as e:
         _log_gemini_failure("Gemini compare", e)
 
     all_results: dict[str, list] = {}
-    for item in items:
-        try:
-            all_results[item] = _ddg_search(f"{item} {aspect}", max_results=3)
-        except Exception:
-            all_results[item] = []
+    selected=items[:5]
+    batches=_parallel_bounded([lambda item=item:_ddg_search(f'{item} {aspect}',max_results=3) for item in selected],6)
+    records=[{**record,'comparison_item':item} for item,batch in zip(selected,batches) for record in (batch or [])[:3]]
+    for item in selected:all_results[item]=[]
+    for record in _localized(records):all_results[record['comparison_item']].append(record)
 
-    lines = [f"Comparison — {aspect.upper()}", "─" * 40]
-    for item in items:
+    if not any(all_results.values()):return 'Nenhum resultado confirmado para esta comparação.'
+    label={'price':'PREÇOS','specs':'ESPECIFICAÇÕES','reviews':'AVALIAÇÕES','features':'RECURSOS','general':'GERAL'}.get(aspect,aspect.upper())
+    lines = [f"Comparação · {label}", "─" * 40]
+    for item in items[:5]:
         lines.append(f"\n▸ {item}")
         for r in all_results.get(item, [])[:2]:
             if r.get("snippet"):
@@ -395,17 +439,18 @@ def _web_search(
     player=None,
     session_memory=None,
 ) -> str:
-    params = parameters or {}
-    query  = params.get("query", "").strip()
-    mode   = params.get("mode",  "search").lower().strip()
-    items  = params.get("items", [])
-    aspect = params.get("aspect", "general").strip() or "general"
+    params = parameters if isinstance(parameters,dict) else {}
+    query  = str(params.get('query') or '').strip()[:1000]
+    mode   = str(params.get('mode') or 'search').lower().strip()
+    raw_items=params.get('items',[])
+    items=[item.strip()[:250] for item in raw_items if isinstance(item,str) and item.strip()][:5] if isinstance(raw_items,list) else []
+    aspect = str(params.get('aspect') or 'general').strip()[:250] or 'general'
 
     if mode == "news":
         if not query or query.lower() in ("notícias", "noticias", "notícias recentes", "noticias recentes"):
             query=""
         package=fetch_news_package(query)
-        if player:
+        if player and package['model'].get('items'):
             player.show_manifestation(package["model"])
         return package["text"]
     if not query and not items:
@@ -436,17 +481,18 @@ def _web_search(
 
 
 def web_search(parameters,response=None,player=None,session_memory=None):
-    params=dict(parameters or {})
+    params=dict(parameters) if isinstance(parameters,dict) else {}
     mode=str(params.get('mode','search')).lower().strip()
     query=str(params.get('query',''))
     if mode=='search' and re.search(r'\b(noticias|notícias|news|manchetes)\b',query,re.I):
         mode='news'
     params['mode']=mode
     result=_web_search(params,response,player,session_memory)
-    if player and mode!='news' and result and not result.startswith(('No results','Search failed','Please provide')):
+    if player and mode!='news' and result and not result.startswith(('No results','Search failed','Please provide','Nenhum resultado','Falha na pesquisa','Informe o que','Não consegui')):
         labels={'search':'BUSCA','research':'PESQUISA','price':'PREÇOS','compare':'COMPARAÇÃO'}
         title=labels.get(mode,'RESULTADOS')
-        player.show_manifestation({'kind':'search' if mode=='search' else 'data','title':title,'text':result})
+        player.show_manifestation({'kind':'search' if mode=='search' else 'data','title':title,'text':result,
+                                  'refresh':{'provider':'search','parameters':params}})
     return result
 
 

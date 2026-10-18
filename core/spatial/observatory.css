@@ -1,0 +1,102 @@
+/* Pinned optical tiles share a native outer frame; projections remain unframed. */
+body[data-surface="card"]:not([data-framed="true"]) {
+  color:#edfaff; background:#03131ff5;
+  background-image:linear-gradient(125deg,#082438e8,#020d18e8),url('./assets/deep-space.png');
+  background-size:cover; border-radius:14px;
+}
+body[data-surface="card"]:not([data-framed="true"]) main { box-shadow:inset 0 1px #b1e6ff60; border-radius:14px; }
+body[data-surface="card"]:not([data-framed="true"]) main::before {
+  border:1px solid #75ccff99; border-radius:14px;
+  background:none; box-shadow:inset 0 0 12px #2585be20,0 0 8px #5ac5ff40;
+}
+body[data-framed="true"] { background:transparent !important; background-image:none !important; }
+body[data-framed="true"] main, body[data-framed="true"] .record {
+  background:transparent !important; border:0 !important; box-shadow:none !important;
+}
+body[data-framed="true"] main::before,body[data-framed="true"] main::after { display:none !important; }
+body[data-framed="true"] main { padding:8px; grid-template-columns:minmax(86px,.8fr) minmax(0,1.4fr); gap:8px 12px; }
+body[data-framed="true"] #summary h1 { color:#eff5ff; font-size:15px; line-height:1.25; }
+body[data-framed="true"] .fact { color:var(--accent); font-size:34px; text-shadow:0 0 12px color-mix(in srgb,var(--accent) 40%,transparent); }
+body[data-framed="true"][data-kind="system"] #summary p { color:#8addff; font-size:13px; font-weight:600; text-shadow:0 0 8px #65c8ff30; }
+body[data-framed="true"] .record h2 { color:#e9f2ff; font-size:13px; line-height:1.35; }
+body[data-framed="true"] .record p,body[data-framed="true"] .muted { color:#b1c7e1; font-size:11px; line-height:1.4; }
+body[data-framed="true"] .record .index { color:var(--accent); text-shadow:0 0 9px color-mix(in srgb,var(--accent) 30%,transparent); }
+body[data-framed="true"] .record { border-bottom:1px solid #367da335 !important; padding:6px 0; }
+body[data-framed="true"] .record.selected { background:linear-gradient(90deg,#11629935,transparent) !important; }
+body[data-framed="true"] .metric strong { color:#e5f5ff; text-shadow:0 0 8px #2cbfff55; }
+body[data-framed="true"][data-kind="weather"] main {
+  display:grid; grid-template-columns:76px minmax(0,1fr) 84px;
+  grid-template-rows:minmax(78px,1fr) auto; align-items:center; gap:5px 7px; padding:5px 3px;
+}
+body[data-framed="true"][data-kind="weather"] #symbol-space { grid-row:1; grid-column:1; min-height:65px; height:100%; }
+body[data-framed="true"][data-kind="weather"] #summary { grid-row:1; grid-column:2; }
+body[data-framed="true"][data-kind="weather"] #summary h1 { font-size:10px; color:#9bbed6; margin-bottom:4px; }
+body[data-framed="true"][data-kind="weather"] #summary p { font-size:11px; line-height:1.3; }
+body[data-framed="true"][data-kind="weather"] .fact { font-size:30px; color:#f0f9ff; text-shadow:0 0 12px #00aaff99; }
+body[data-framed="true"][data-kind="weather"] #metrics { display:flex; flex-direction:column; flex-wrap:nowrap; gap:3px; grid-row:1; grid-column:3; border-left:1px solid #297e9b50; padding-left:8px; }
+body[data-framed="true"][data-kind="weather"] .metric { min-width:0; display:flex; flex-direction:column-reverse; }
+body[data-framed="true"][data-kind="weather"] .metric span { display:block; font:8px/10px 'Segoe UI',sans-serif; color:#9abfd5; }
+body[data-framed="true"][data-kind="weather"] .metric strong { font-size:12px; line-height:14px; }
+body[data-framed="true"][data-kind="weather"] #details { grid-column:1/-1; grid-row:2; padding:0; }
+body[data-framed="true"][data-kind="weather"] #details:has(.forecast:empty) { display:none; }
+body[data-framed="true"][data-kind="weather"] .forecast { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; border:0; }
+body[data-framed="true"][data-kind="weather"] .forecast div { min-width:0; padding:3px 2px; text-align:center; border:1px solid #24739966; border-radius:7px; background:linear-gradient(#0a2d4755,#020c1744); }
+body[data-framed="true"][data-kind="weather"] .forecast small { font-size:8px; line-height:10px; color:#a5c9dc; display:block; }
+body[data-framed="true"][data-kind="weather"] .forecast strong { font-size:12px; line-height:14px; color:#d8f3ff; }
+body[data-framed="true"] .forecast-icon { display:block; width:18px; height:18px; margin:1px auto; filter:drop-shadow(0 0 4px #36bfff80); }
+@media(max-height:155px) {
+  body[data-framed="true"][data-kind="weather"] main { grid-template-rows:1fr; }
+  body[data-framed="true"][data-kind="weather"] #details { display:none; }
+}
+@media(max-width:270px), (max-height:130px) {
+  body[data-framed="true"][data-kind="weather"] main { grid-template-columns:60px minmax(0,1fr); grid-template-rows:1fr; }
+  body[data-framed="true"][data-kind="weather"] #metrics,body[data-framed="true"][data-kind="weather"] #details { display:none; }
+}
+body[data-surface="projection"][data-kind="weather"] main { display:grid; grid-template-columns:minmax(140px,1.1fr) minmax(160px,1fr); grid-template-rows:auto auto auto auto auto; align-content:center; gap:12px 22px; }
+body[data-surface="projection"][data-kind="weather"] header { grid-column:1/-1; }
+body[data-surface="projection"][data-kind="weather"] #symbol-space { grid-column:1; grid-row:2/4; min-height:160px; max-height:330px; height:100%; }
+body[data-surface="projection"][data-kind="weather"] #summary { grid-column:2; grid-row:2; align-self:end; }
+body[data-surface="projection"][data-kind="weather"] #metrics { grid-column:2; grid-row:3; align-self:start; }
+body[data-surface="projection"][data-kind="weather"] #details { grid-column:1/-1; grid-row:4; }
+body[data-surface="projection"][data-kind="weather"] #details:has(.forecast:empty) { display:none; }
+body[data-surface="projection"][data-kind="weather"] footer { grid-column:1/-1; grid-row:5; }
+body[data-surface="projection"][data-kind="weather"] .fact { font-size:42px; }
+body[data-surface="projection"][data-kind="weather"] #summary h1 { font-size:17px; }
+@media(max-width:430px) {
+  body[data-surface="projection"][data-kind="weather"] main { grid-template-columns:1fr; }
+  body[data-surface="projection"][data-kind="weather"] #symbol-space { grid-column:1; grid-row:2; max-height:170px; min-height:110px; }
+  body[data-surface="projection"][data-kind="weather"] #summary { grid-column:1; grid-row:3; }
+  body[data-surface="projection"][data-kind="weather"] #metrics { grid-column:1; grid-row:4; }
+  body[data-surface="projection"][data-kind="weather"] #details { grid-column:1; grid-row:5; }
+  body[data-surface="projection"][data-kind="weather"] footer { grid-column:1; grid-row:6; }
+}
+@media(max-width:220px) {
+  body[data-framed="true"] main { grid-template-columns:minmax(36px,.65fr) minmax(0,1fr); gap:4px; padding:4px; }
+  body[data-framed="true"] #symbol-space { min-height:40px; }
+  body[data-framed="true"] .fact { font-size:22px; }
+  body[data-framed="true"] .record h2,body[data-framed="true"] #summary h1 { font-size:10px; }
+  body[data-framed="true"] .record p { display:none; }
+}
+@media(max-height:360px) {
+  body[data-surface="projection"][data-kind="weather"] main {
+    grid-template-columns:minmax(80px,.75fr) minmax(0,1.25fr);
+    grid-template-rows:auto auto auto minmax(0,auto) auto;
+    align-content:center; padding:10px 16px; gap:6px 12px;
+  }
+  body[data-surface="projection"][data-kind="weather"] #symbol-space {
+    grid-column:1; grid-row:2/4; min-height:80px; max-height:150px;
+  }
+  body[data-surface="projection"][data-kind="weather"] #summary { grid-column:2; grid-row:2; }
+  body[data-surface="projection"][data-kind="weather"] #metrics {
+    grid-column:2; grid-row:3; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 10px;
+  }
+  body[data-surface="projection"][data-kind="weather"] #details { grid-column:1/-1; grid-row:4; max-height:44px; }
+  body[data-surface="projection"][data-kind="weather"] footer { grid-column:1/-1; grid-row:5; }
+  body[data-surface="projection"][data-kind="weather"] .metric strong { font-size:17px; }
+}
+@media(max-height:100px) {
+  body[data-framed="true"] #symbol-space { min-height:40px; }
+  body[data-framed="true"] #details { display:none; }
+  body[data-framed="true"] .fact { font-size:22px; }
+  body[data-framed="true"] #summary h1,body[data-framed="true"] .muted { font-size:10px; }
+}

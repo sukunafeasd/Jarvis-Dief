@@ -30,7 +30,10 @@ class FinishVisualTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_domain_motion_materials_and_reduced_motion(self):
         await self.page.goto(self.url+'/presentation.html')
-        await self.page.wait_for_function('typeof window.updateCore === "function"')
+        await self.page.wait_for_function('typeof window.updateCore === "function" || Boolean(document.body.dataset.error)',timeout=60000)
+        self.assertEqual(self.errors,[],'Renderer initialization failed')
+        self.assertFalse(await self.page.evaluate('Boolean(document.body.dataset.error)'))
+        self.assertTrue(await self.page.evaluate('typeof window.updateCore === "function"'))
         await self.page.evaluate("document.documentElement.style.background='#070b12'")
         models=[
             {'kind':'weather','code':95,'city':'Cidade de teste','temperature':19,'rain':80,'wind':12},

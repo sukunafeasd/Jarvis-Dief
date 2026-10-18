@@ -17,12 +17,13 @@ class HolographicMotionTests(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.url+'/presentation.html')
         await self.page.wait_for_function('typeof window.holographicMotionDiagnostics === "function"')
 
-    async def test_frame_and_symbols_move_without_moving_text_or_leaking(self):
+    async def test_projection_symbols_move_without_moving_text_or_leaking(self):
         await self.prepare()
         await self.page.set_viewport_size({'width':540,'height':700})
         model={'kind':'weather','title':'CLIMA DE TESTE','city':'Cidade de teste',
             'code':61,'temperature':19,'condition':'Chuva','motion':'full'}
         await self.page.evaluate('m=>window.updateCore(m)',model)
+        self.assertEqual(await self.page.locator('body').get_attribute('data-surface'),'projection')
         await self.page.wait_for_timeout(3000)
         measure='''() => ['summary','details','metrics'].map(id=>{
           const r=document.getElementById(id).getBoundingClientRect(); return [r.x,r.y,r.width,r.height];})'''
@@ -40,8 +41,8 @@ class HolographicMotionTests(unittest.IsolatedAsyncioTestCase):
         from PIL import Image, ImageChops
         a=Image.open(BytesIO(base64.b64decode(raw_first.split(',')[1]))).convert('RGBA')
         b=Image.open(BytesIO(base64.b64decode(raw_second.split(',')[1]))).convert('RGBA')
-        edge=ImageChops.difference(a.crop((0,0,540,20)),b.crop((0,0,540,20)))
-        self.assertTrue(edge.convert('RGB').getbbox() or edge.getchannel('A').getbbox())
+        movement=ImageChops.difference(a,b)
+        self.assertTrue(movement.convert('RGB').getbbox() or movement.getchannel('A').getbbox())
         self.assertTrue(first_diag['rig']);self.assertEqual(first_diag['rings'],2)
         self.assertGreater(first_diag['drawCalls'],5);self.assertLess(first_diag['drawCalls'],65)
         for index in range(24):
@@ -50,6 +51,24 @@ class HolographicMotionTests(unittest.IsolatedAsyncioTestCase):
         final=await self.page.evaluate('window.holographicMotionDiagnostics()')
         self.assertEqual(first_diag['geometries'],final['geometries'])
         await self.page.screenshot(path=str(OUTPUT/'weather-motion.png'))
+        self.assertEqual(self.errors,[])
+
+    async def test_compact_card_border_moves_without_a_native_frame(self):
+        from io import BytesIO
+        import base64
+        from PIL import Image, ImageChops
+        await self.prepare()
+        await self.page.set_viewport_size({'width':540,'height':700})
+        await self.page.evaluate('window.updateCore({kind:"weather",compact:true,motion:"full",code:61,temperature:19})')
+        self.assertEqual(await self.page.locator('body').get_attribute('data-surface'),'card')
+        await self.page.wait_for_timeout(2000)
+        first=await self.page.evaluate('document.getElementById("scene").toDataURL()')
+        await self.page.wait_for_timeout(650)
+        second=await self.page.evaluate('document.getElementById("scene").toDataURL()')
+        a=Image.open(BytesIO(base64.b64decode(first.split(',')[1]))).convert('RGBA')
+        b=Image.open(BytesIO(base64.b64decode(second.split(',')[1]))).convert('RGBA')
+        edge=ImageChops.difference(a.crop((0,0,540,20)),b.crop((0,0,540,20)))
+        self.assertTrue(edge.convert('RGB').getbbox() or edge.getchannel('A').getbbox())
         self.assertEqual(self.errors,[])
 
     async def test_motion_freezes_for_reduced_hidden_and_interrupted_states(self):
@@ -128,7 +147,10 @@ class NativeHolographicMotionTests(unittest.TestCase):
         from core.workspace_panels import WorkspacePanel
         from core.settings_style import SettingsSurface
         app=QApplication.instance() or QApplication([])
-        frame=HudGlassFrame(); frame.resize(320,150);frame.show();QTest.qWait(100)
+        frame=HudGlassFrame(); frame.resize(320,150);frame.show()
+        import time
+        deadline=time.monotonic()+2
+        while frame.lightPhase<=0 and time.monotonic()<deadline:QTest.qWait(20)
         self.assertGreater(frame.lightPhase,0)
         frame.showMinimized();QTest.qWait(60)
         self.assertNotEqual(frame._light.state(),frame._light.State.Running)

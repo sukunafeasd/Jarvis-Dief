@@ -68,7 +68,13 @@ class SecondAuditTests(unittest.TestCase):
         self.assertIsNone(self.window._environment.override)
 
     def test_entrance_waits_for_primary_hologram_to_be_ready(self):
+        self.window._ensure_space()
         self.window.hud.hud_style='core'
+        self.window._scene_layout_ready=True
+        self.window._ready=True
+        if self.window._opening_veil:
+            self.window._opening_veil.released=True
+            self.window._opening_veil.hide()
         self.window._space_view=Mock(failed=False,_ready=True)
         self.window.hud._spatial_core=Mock(failed=False,_ready=False)
         self.window._start_environment()

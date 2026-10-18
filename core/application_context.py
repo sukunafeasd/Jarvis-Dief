@@ -24,6 +24,7 @@ class ApplicationContext:
         self._selections={}
         self._send_attempts={}
         self._tool_failures={}
+        self._recent_operations=[]
 
     def observe_user(self, text):
         with self._lock:
@@ -46,14 +47,24 @@ class ApplicationContext:
     def record_tool_result(self,name,arguments,result):
         with self._lock:
             if not isinstance(result,dict):return
+            from core.action_outcome import assess
+            outcome=assess(result)['state']
+            operation={'tool':str(name)[:100],
+                'action':str(arguments.get('action',''))[:80],
+                'outcome':outcome,'at':self._clock()}
+            references={key:result[key] for key in ('job_id','operation_id','turn_id')
+                if isinstance(result.get(key),str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}',result[key])}
+            if references:operation['references']=references
+            self._recent_operations.append(operation)
+            self._recent_operations=self._recent_operations[-12:]
             key=self._tool_key(name,arguments)
-            if result.get('uncertain') or result.get('stage')=='uncertain' or result.get('ok') is False or result.get('error'):
+            if outcome in ('uncertain','failed'):
                 if key not in self._tool_failures and len(self._tool_failures)>=64:
                     self._tool_failures.pop(next(iter(self._tool_failures)))
                 prior=self._tool_failures.get(key,{})
                 self._tool_failures[key]={'count':prior.get('count',0)+1,
-                    'uncertain':bool(prior.get('uncertain') or result.get('uncertain') or result.get('stage')=='uncertain')}
-            else:self._tool_failures.pop(key,None)
+                    'uncertain':bool(prior.get('uncertain') or outcome=='uncertain')}
+            elif outcome=='tool_reported':self._tool_failures.pop(key,None)
 
     def record_collection(self,domain,items,**metadata):
         with self._lock:
@@ -71,12 +82,13 @@ class ApplicationContext:
             return copy.deepcopy(item)
 
     def resolve_record(self,domain,selection):
-        collection=self.collection(domain)
-        if not isinstance(selection,int) or isinstance(selection,bool) or not 1<=selection<=len(collection['items']):
-            raise ValueError('Número fora da lista consultada. Não selecionei um item ao acaso.')
-        record=collection['items'][selection-1]
-        with self._lock:self._selections[domain]=copy.deepcopy(record)
-        return record
+        with self._lock:
+            collection=self.collection(domain)
+            if not isinstance(selection,int) or isinstance(selection,bool) or not 1<=selection<=len(collection['items']):
+                raise ValueError('Número fora da lista consultada. Não selecionei um item ao acaso.')
+            record=collection['items'][selection-1]
+            self._selections[domain]={**copy.deepcopy(record),'at':self._clock()}
+            return record
 
     def remember_selection(self,domain,record):
         fields=('id','subject','title','contact','thread_id','body_next_offset')
@@ -124,6 +136,11 @@ class ApplicationContext:
 
     def snapshot(self):
         with self._lock:
+            now=self._clock()
             return {'active_app': self.current(), 'expires_after_seconds': 600,
+                'recent_operations':[{**{key:copy.deepcopy(record[key]) for key in ('tool','action','outcome','references') if key in record},
+                    'age_seconds':round(max(0,now-record['at']),1)} for record in self._recent_operations if now-record['at']<=600],
+                'operations_note':'Historico resumido de retornos, nao autorizacao para repetir acoes nem prova visual. Consulte o resultado original para detalhes e causa.',
                 'collections':{domain:{'count':len(record['items']),'expired':self._clock()-record['at']>600} for domain,record in self._collections.items()},
-                'selections':{domain:{key:record[key] for key in ('id','subject','title','contact','thread_id') if key in record} for domain,record in self._selections.items()}}
+                'selections':{domain:{key:record[key] for key in ('id','subject','title','contact','thread_id') if key in record} for domain,record in self._selections.items()
+                    if now-record.get('at',self._collections.get(domain,{}).get('at',0))<=600}}

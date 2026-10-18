@@ -58,7 +58,8 @@ def weather_action(parameters, player=None, session_memory=None):
                  "humidity": current["relative_humidity_2m"] if when != "tomorrow" else None,
                  "wind": current["wind_speed_10m"] if when != "tomorrow" else selected["wind"],
                  "rain": selected["rain"], "is_day": current["is_day"], "forecast": days,
-                 "source": "Open-Meteo"}
+                 "source": "Open-Meteo",
+                 'refresh':{'provider':'weather','parameters':{'city':city,'time':when}}}
         if player:
             player.show_manifestation(model)
         return json.dumps({"ok": True, "screen_shown": bool(player), "weather": model,

@@ -1,0 +1,156 @@
+[
+  {
+    "id": "obra--brainstorming",
+    "name": "brainstorming",
+    "origin": "obra/superpowers",
+    "revision": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+    "source": "https://github.com/obra/superpowers/tree/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/brainstorming",
+    "path": "obra--brainstorming/SKILL.md",
+    "sha256": "6ee10d1481b8a2580d5336ff66c5c08acc9d4b251b13bbc3bfd31be99c261d43",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "obra--writing-plans",
+    "name": "writing-plans",
+    "origin": "obra/superpowers",
+    "revision": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+    "source": "https://github.com/obra/superpowers/tree/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/writing-plans",
+    "path": "obra--writing-plans/SKILL.md",
+    "sha256": "a6c67c1900064347c2a329990dd3c555657c51c3ec53b259a08aa01a2c26139a",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "obra--systematic-debugging",
+    "name": "systematic-debugging",
+    "origin": "obra/superpowers",
+    "revision": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+    "source": "https://github.com/obra/superpowers/tree/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/systematic-debugging",
+    "path": "obra--systematic-debugging/SKILL.md",
+    "sha256": "51c6435d98c83c42c96ba7c35725a0b2c376cd487fb1a4e6bd0ddbe7e33ef202",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "obra--verification-before-completion",
+    "name": "verification-before-completion",
+    "origin": "obra/superpowers",
+    "revision": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+    "source": "https://github.com/obra/superpowers/tree/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/verification-before-completion",
+    "path": "obra--verification-before-completion/SKILL.md",
+    "sha256": "2befe7fc55bcadaa3d97dd9e8efeb633d2561c0ebe74c5a8b17c4d9e7e4520b3",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "obra--requesting-code-review",
+    "name": "requesting-code-review",
+    "origin": "obra/superpowers",
+    "revision": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+    "source": "https://github.com/obra/superpowers/tree/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/requesting-code-review",
+    "path": "obra--requesting-code-review/SKILL.md",
+    "sha256": "2180e14a448e9410bec88e6646a2d1f0ce7fdd58de27388c1e052e929679d2bc",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "obra--test-driven-development",
+    "name": "test-driven-development",
+    "origin": "obra/superpowers",
+    "revision": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+    "source": "https://github.com/obra/superpowers/tree/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/test-driven-development",
+    "path": "obra--test-driven-development/SKILL.md",
+    "sha256": "64b03fce4aee5a97a93160cea8111f3ba13a17b7c001db4bd5836d67fd10705d",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "anthropics--frontend-design",
+    "name": "frontend-design",
+    "origin": "anthropics/skills",
+    "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+    "source": "https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/frontend-design",
+    "path": "anthropics--frontend-design/SKILL.md",
+    "sha256": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "anthropics--webapp-testing",
+    "name": "webapp-testing",
+    "origin": "anthropics/skills",
+    "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+    "source": "https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/webapp-testing",
+    "path": "anthropics--webapp-testing/SKILL.md",
+    "sha256": "257046f7c6e7c4a3f9f94da47a43557d77c25afd4816c41daec41145578073e5",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "anthropics--mcp-builder",
+    "name": "mcp-builder",
+    "origin": "anthropics/skills",
+    "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+    "source": "https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/mcp-builder",
+    "path": "anthropics--mcp-builder/SKILL.md",
+    "sha256": "0f4592dcb53cf2b5d6b7febee6b4152018b565551a1c29e3c612f57b218ab295",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "anthropics--skill-creator",
+    "name": "skill-creator",
+    "origin": "anthropics/skills",
+    "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+    "source": "https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/skill-creator",
+    "path": "anthropics--skill-creator/SKILL.md",
+    "sha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "openai--notion-knowledge-capture",
+    "name": "notion-knowledge-capture",
+    "origin": "openai/plugins",
+    "revision": "0722921d5542fc593105c27bd52630babd8b8c2a",
+    "source": "https://github.com/openai/plugins/blob/0722921d5542fc593105c27bd52630babd8b8c2a/plugins/notion/skills/notion-knowledge-capture/SKILL.md",
+    "path": "openai--notion-knowledge-capture/SKILL.md",
+    "sha256": "ade7d8902823500f6af26bdf290f2a88e35b34ce9668739eb8807b773648e333",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "openai--notion-meeting-intelligence",
+    "name": "notion-meeting-intelligence",
+    "origin": "openai/plugins",
+    "revision": "0722921d5542fc593105c27bd52630babd8b8c2a",
+    "source": "https://github.com/openai/plugins/blob/0722921d5542fc593105c27bd52630babd8b8c2a/plugins/notion/skills/notion-meeting-intelligence/SKILL.md",
+    "path": "openai--notion-meeting-intelligence/SKILL.md",
+    "sha256": "1a8647c46cdfab399a1e0199924e0aecb83034e9a1b0957db211a045145b7771",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "openai--notion-research-documentation",
+    "name": "notion-research-documentation",
+    "origin": "openai/plugins",
+    "revision": "0722921d5542fc593105c27bd52630babd8b8c2a",
+    "source": "https://github.com/openai/plugins/blob/0722921d5542fc593105c27bd52630babd8b8c2a/plugins/notion/skills/notion-research-documentation/SKILL.md",
+    "path": "openai--notion-research-documentation/SKILL.md",
+    "sha256": "8ca523535915c1b9016202fa24d120545c60caea5c5545d74bfdec195f0a039a",
+    "enabled": true,
+    "scripts_allowed": false
+  },
+  {
+    "id": "openai--notion-spec-to-implementation",
+    "name": "notion-spec-to-implementation",
+    "origin": "openai/plugins",
+    "revision": "0722921d5542fc593105c27bd52630babd8b8c2a",
+    "source": "https://github.com/openai/plugins/blob/0722921d5542fc593105c27bd52630babd8b8c2a/plugins/notion/skills/notion-spec-to-implementation/SKILL.md",
+    "path": "openai--notion-spec-to-implementation/SKILL.md",
+    "sha256": "43b304aaff38fbd4fd5d81efcefb2fd92f5450649eba8b02a2371edb4599cf3f",
+    "enabled": true,
+    "scripts_allowed": false
+  }
+]

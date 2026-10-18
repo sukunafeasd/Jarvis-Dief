@@ -4,9 +4,11 @@ PLUGIN={'name':'google_calendar','description':'Agenda Google REAL, diferente da
  'parameters':{'type':'OBJECT','properties':{
     'action':{'type':'STRING','enum':['status','calendars','list','read','create','update','delete']},
     **{key:{'type':'STRING'} for key in ('calendar_id','event_id','title','description','location','start','end','date_from','date_to','query','page_token')},
+    'include_birthdays':{'type':'BOOLEAN','description':'Aniversarios automaticos ficam ocultos por padrao. Use true somente quando o usuario pedir aniversarios.'},
     'limit':{'type':'INTEGER'},'confirmed':{'type':'BOOLEAN'}},'required':['action']}}
 PLUGIN_SETTINGS=google_schema('google_calendar','Google Agenda')
 def run(parameters,player=None,**kwargs):
     if parameters.get('action')=='status':return respond(lambda:google.status('google_calendar'))
     return respond(lambda:google.calendar(parameters),player if parameters.get('action') in ('list','read','create','update') else None,
-        'calendar','GOOGLE AGENDA','google_calendar')
+        'calendar','GOOGLE AGENDA','google_calendar',
+        refresh={'provider':'google_calendar','parameters':parameters} if parameters.get('action')=='list' else None)

@@ -44,7 +44,7 @@ export class SolarSystem {
     this.root=new THREE.Group();scene.add(this.root);
     this.root.position.set(9,4,-32);this.root.rotation.set(.46,0,.18);
     this.nodes=new Map();this.textures=[];this.elapsed=0;this.mix=0;this.visibility=1;this.disposed=false;this.maps={};
-    this.sphere=new THREE.SphereGeometry(1,28,20);
+    this.sphere=new THREE.SphereGeometry(1,64,40);
     const sunTexture=planetTexture('sun','#ffc27a');this.textures.push(sunTexture);
     this.sun=new THREE.Mesh(this.sphere,new THREE.MeshStandardMaterial({map:sunTexture,emissiveMap:sunTexture,emissive:'#ffd798',emissiveIntensity:.8,roughness:1}));
     this.sun.scale.setScalar(.62);this.root.add(this.sun);this.nodes.set('sun',{mesh:this.sun,radius:.62,angle:0,orbitRadius:0});
@@ -81,18 +81,35 @@ export class SolarSystem {
     const moonTexture=planetTexture('moon','#acb3b9');this.textures.push(moonTexture);
     const moon=new THREE.Mesh(this.sphere,new THREE.MeshStandardMaterial({map:moonTexture,roughness:1}));moon.scale.setScalar(.07);this.root.add(moon);
     this.nodes.set('moon',{mesh:moon,label:'Lua',radius:.07,orbitRadius:2.12,angle:0});
-    for(const id of ['earth','moon']) {
-      new THREE.TextureLoader().load(`./assets/${id}-nasa.jpg`,photo=>{
-        if(this.disposed){photo.dispose();return;}
-        // Decode the local source once; GPU surfaces are capped at 1024x512.
-        const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=512;
-        canvas.getContext('2d').drawImage(photo.image,0,0,1024,512);photo.dispose();
-        const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
-        const material=this.nodes.get(id).mesh.material,old=material.map;
-        material.map=texture;this.textures=this.textures.filter(t=>t!==old);this.textures.push(texture);
-        old.dispose();this.maps[id]='NASA';this.invalidate?.();
-      },undefined,()=>{this.maps[id]='procedural';this.invalidate?.();});
-    }
+    const earth=this.nodes.get('earth').mesh;
+    const atmosphere=new THREE.Mesh(this.sphere,new THREE.ShaderMaterial({
+      uniforms:{tint:{value:new THREE.Color('#67afff')}},transparent:true,depthWrite:false,
+      blending:THREE.AdditiveBlending,
+      vertexShader:'varying vec3 n; varying vec3 v; void main(){vec4 p=modelViewMatrix*vec4(position,1.);n=normalize(normalMatrix*normal);v=normalize(-p.xyz);gl_Position=projectionMatrix*p;}',
+      fragmentShader:'uniform vec3 tint; varying vec3 n; varying vec3 v; void main(){float rim=pow(1.-max(0.,dot(normalize(n),normalize(v))),3.);gl_FragColor=vec4(tint,rim*.3);}'
+    }));atmosphere.scale.setScalar(1.028);earth.add(atmosphere);
+    const clouds=new THREE.Mesh(this.sphere,new THREE.MeshStandardMaterial({color:'#eef8ff',transparent:true,opacity:.72,depthWrite:false,roughness:1}));
+    clouds.scale.setScalar(1.009);clouds.visible=false;earth.add(clouds);this.clouds=clouds;
+    const mapping={mercury:'mercury',venus:'venus_atmosphere',earth:'earth_daymap',moon:'moon',mars:'mars',jupiter:'jupiter',saturn:'saturn',uranus:'uranus',neptune:'neptune',sun:'sun'};
+    this.pendingMaps=Object.keys(mapping).length+1;
+    const loadMap=(name,apply)=>{
+      let settled=false;
+      const finish=()=>{if(settled)return;settled=true;this.pendingMaps--;this.invalidate?.();};
+      new THREE.FileLoader().setResponseType('json').load(`./assets/${name}-sss.json`,data=>{
+      if(this.disposed)return;
+      new THREE.TextureLoader().load(data.image,texture=>{
+        if(this.disposed){texture.dispose();return;}
+        texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=4;this.textures.push(texture);apply(texture);finish();
+      },undefined,finish);
+    },undefined,finish);
+    };
+    Object.entries(mapping).forEach(([id,name])=>loadMap(name,texture=>{
+      const material=this.nodes.get(id).mesh.material,old=material.map;material.map=texture;
+      if(id==='sun')material.emissiveMap=texture;
+      material.emissiveIntensity=id==='sun'?.8:0;material.needsUpdate=true;
+      this.textures=this.textures.filter(t=>t!==old);old?.dispose();this.maps[id]='Solar System Scope';
+    }));
+    loadMap('earth_clouds',texture=>{texture.colorSpace=THREE.NoColorSpace;clouds.material.alphaMap=texture;clouds.material.needsUpdate=true;clouds.visible=true;});
     this.halo=orbit(1,'#72e3ed',.55);this.root.add(this.halo);this.halo.visible=false;
     this.key=new THREE.DirectionalLight('#fff1d8',2.3);this.key.position.set(-10,9,12);
     this.fill=new THREE.AmbientLight('#87bed9',.65);scene.add(this.key,this.fill);
@@ -108,7 +125,7 @@ export class SolarSystem {
     const side=isPortrait?2.2:9;
     this.root.position.lerp(new THREE.Vector3(side*(1-this.mix),4*(1-this.mix),-32+18*this.mix),reduced?1:Math.min(1,dt*3));
     this.root.scale.setScalar(isPortrait?.65:1);
-    const visibility=['focus','analysis','execution'].includes(state.mode)?0:state.mode==='exploration'?1:.45;
+    const visibility=state.mode==='focus'?0:state.mode==='exploration'?1:.45;
     this.visibility=reduced?visibility:THREE.MathUtils.damp(this.visibility,visibility,5,dt);
     this.nodes.forEach((node,id)=>{
       if(id==='sun'||id==='moon')return;
@@ -141,6 +158,7 @@ export class SolarSystem {
       this.halo.scale.setScalar(selected.mesh.scale.x*1.5);this.halo.rotation.y=this.elapsed*.04;
     }
     this.root.visible=this.visibility>.01;
+    if(this.clouds&&!reduced)this.clouds.rotation.y=this.elapsed*.007;
     this.sun.material.transparent=true;this.sun.material.opacity=this.visibility;
     moon.material.transparent=true;moon.material.opacity=this.visibility;
     this.corona.material.opacity=(.4+(state.phase==='speaking'?Math.min(.15,state.level*.12):0))*this.visibility;

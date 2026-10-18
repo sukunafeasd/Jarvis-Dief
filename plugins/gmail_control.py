@@ -48,7 +48,9 @@ def run(parameters, player=None, session_memory=None, **kwargs):
                               'thread_id':item.get('thread_id',''),'detail':item.get('from',''),'date':item.get('date','')}
                              for item in result.get('messages',[])],
                     'text':result.get('note',''),'source':'Gmail · cabeçalhos consultados',
-                    'emptyText':'Nenhum e-mail encontrado nesta consulta.'})
+                    'emptyText':'Nenhum e-mail encontrado nesta consulta.',
+                    'refresh':{'provider':'gmail','parameters':{'action':'list','query':query,'page_token':token,
+                        'limit':parameters.get('limit',20),'include_spam_trash':spam}}})
         elif action in ('read','read_more','read_thread'):
             selected={}
             if parameters.get('selection') is not None:

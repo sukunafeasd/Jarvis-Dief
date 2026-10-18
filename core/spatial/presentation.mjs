@@ -4,10 +4,12 @@ import { factSymbolFor, buildFactSymbol } from './fact-symbols.mjs';
 import { HudSurface } from './hud-surface.mjs';
 import { surfaceFor } from './projection-style.mjs';
 import {buildPinnedSymbol,animatePinnedSymbol} from './pinned-symbols.mjs';
+import {forecastSymbol} from './weather-symbols.mjs';
 import { HolographicPanelMotion, HolographicSymbolRig } from './holographic-motion.mjs';
 const hudSurface = new HudSurface(document.body);
 const panelMotion = new HolographicPanelMotion();
 let symbolRig = null, motionTime = 0, dismissStarted = 0, cancelledAt = 0;
+let renderDirty = true, lastReducedMotion = null;
 let clockEpoch=Date.now(), clockMotionOrigin=0;
 const $ = (id) => document.getElementById(id);
 const escape = (v) =>
@@ -18,9 +20,10 @@ const escape = (v) =>
         c
       ],
   );
+const numberFormat = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 });
 const number = (v) =>
   Number.isFinite(v)
-    ? new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(v)
+    ? numberFormat.format(v)
     : "--";
 let model = {},
   signature = "",
@@ -41,6 +44,7 @@ addEventListener('pointermove',event=>{
 });
 addEventListener('pointerleave',()=>{pointer.inside=false;pointer.x=pointer.y=0;});
 window.setNewsFusion = fused => {
+  renderDirty = true;
   const surface=document.querySelector('main');
   document.body.style.visibility=fused ? 'hidden' : '';
   document.body.style.pointerEvents=fused ? 'none' : '';
@@ -72,18 +76,17 @@ let audioElapsed = 0,
   segmentOffset = 0;
 let narrationRequested=false;
 function presentationTime() {
-  if(cancelled)return audioElapsed*1000;
+  if(cancelled || audioFinished)return audioElapsed*1000;
   return model.narrationDriven
     ? audioElapsed * 1000 +
         (audioStarted && !cancelled
-          ? audioFinished
-            ? performance.now() - audioUpdated
-            : Math.min(240, performance.now() - audioUpdated)
+          ? Math.min(240, performance.now() - audioUpdated)
           : 0)
     : performance.now() - started;
 }
 window.advancePresentation = (beat) => {
   if (cancelled || audioFinished || (beat.presentationId!==undefined && String(beat.presentationId)!==String(model.presentationId))) return;
+  renderDirty = true;
   if(narrationRequested) model.narrationDriven=true;
   audioStarted = true;
   audioElapsed = segmentOffset + beat.elapsed;
@@ -94,28 +97,34 @@ window.advancePresentation = (beat) => {
   document.body.dataset.timingDegraded=String(Boolean(beat.degraded));
 };
 window.cancelPresentation = () => {
+  renderDirty = true;
   audioElapsed = presentationTime() / 1000;
   cancelledAt=performance.now();
   cancelled = true;
+  reveals = [];
   document.body.dataset.playback = "cancelled";
 };
 window.resumePresentation = (origin=0) => {
+  renderDirty = true;
   segmentOffset = audioElapsed-(Number.isFinite(origin)?origin:0);
   cancelled = false;
   audioStarted=false;audioFinished=false;audioUpdated=performance.now();
 };
 window.finishPresentation = () => {
+  if(cancelled || audioFinished)return;
+  renderDirty = true;
+  audioElapsed = presentationTime() / 1000;
   audioUpdated = performance.now();
   audioFinished = true;
   document.body.dataset.playback = "finished";
-  reveals.forEach((reveal,index)=>{
-    if(reveal.deferred){reveal.deferred=false;reveal.start=presentationTime()+Math.min(index,6)*90;}
-  });
+  reveals.forEach(reveal=>{if(!reveal.deferred)reveal.node.textContent=reveal.text;});
+  reveals = [];
 };
 let reveals = [],
   lastSpoken = "",
   lastContent = "";
-const reducedMotion = () => model.motion === "reduced" || model.motion !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+const reducedMotion = () => model.motion === "reduced" || model.motion !== 'full' && motionPreference.matches;
 window.holographicMotionDiagnostics = () => ({
   time:motionTime, panelTime:panelMotion.material.uniforms.time.value,
   rig:Boolean(symbolRig), rings:symbolRig?.rings.length||0,
@@ -132,6 +141,7 @@ window.presentationStatus = () => ({
   motion: model.motion || "full",
 });
 window.dismissPresentation = () => {
+  renderDirty = true;
   surfaceAnimation?.cancel();
   document.body.dataset.dismissing = 'true';
   document.querySelector('main').style.opacity='0';
@@ -174,7 +184,8 @@ function stageText(prior=new Map()) {
       node.style.minHeight = node.getBoundingClientRect().height + "px";
       node.setAttribute("aria-label", text);
       const key=textKey(node,index),old=prior.get(key);
-      if(old?.complete){node.textContent=text;return;}
+      if(old?.complete && old.text===text){node.textContent=text;return;}
+      if(cancelled || audioFinished){node.textContent=old?.text===text ? old.shown : text;return;}
       node.textContent = "";
       const entry={
         node,
@@ -193,6 +204,7 @@ window.narratePresentation = (text) => {
   if(cancelled || audioFinished)return;
   const spoken = String(text).toLocaleLowerCase("pt-BR");
   if (spoken === lastSpoken) return;
+  renderDirty = true;
   lastSpoken = spoken;
   if(['gmail','whatsapp','tasks','calendar'].includes(model.kind) && model.narrationDriven){
     const normalized=speechKey(spoken);
@@ -405,7 +417,7 @@ function build() {
   if(model.compact && mode!=='status') {
     group.add(buildPinnedSymbol(model));
     group.children[0].userData.pinnedSymbol=true;
-    camera.position.z=4.9;
+    camera.position.z=mode==='weather' && model.framed?3.9:4.9;
     started=performance.now();
     return;
   }
@@ -695,7 +707,45 @@ function syncMetadata() {
   $('metadata').textContent=source;
   $('metadata').hidden=!source || surfaceFor(model)==='embedded' || model.kind==='status' || Boolean(model.compact);
 }
+function renderRefreshStatus() {
+  const summary=$('summary');
+  if(!summary.querySelector('.refresh-progress')) {
+    summary.innerHTML='<h1></h1><div class="refresh-progress" role="progressbar" aria-label="Fontes consultadas" aria-valuemin="0" aria-valuemax="100"><span></span></div><p class="muted"></p>';
+  }
+  const total=Math.max(0,Number(model.total)||0),done=Math.max(0,Math.min(total,Number(model.completed)||0));
+  const percent=total?Math.round(done/total*100):0;
+  const items=model.items||[];
+  const unavailable=items.length && items.every(item=>['warning','error'].includes(item.status));
+  const current=items.filter(item=>item.status==='working').map(item=>item.title).join(' · ');
+  summary.querySelector('h1').textContent=current ? 'Consultando '+current : unavailable ? 'Fontes indisponíveis' : total ? 'Consultas concluídas' : 'Preparando as consultas';
+  const progress=summary.querySelector('.refresh-progress');
+  progress.setAttribute('aria-valuenow',String(percent));
+  progress.querySelector('span').style.width=percent+'%';
+  summary.querySelector('p').textContent=`${done} / ${total} fontes consultadas · ${percent}%`;
+  const details=$('details'),existing=new Map([...details.children].map(row=>[row.dataset.refreshKey,row]));
+  const occurrences=new Map();
+  items.forEach((item,index)=>{
+    const identity=JSON.stringify(item.id??item.title??index),occurrence=occurrences.get(identity)||0;
+    occurrences.set(identity,occurrence+1);
+    const key=identity+':'+occurrence;
+    let row=existing.get(key);
+    if(!row){
+      row=document.createElement('div');row.className='check-row';row.dataset.refreshKey=key;
+      row.innerHTML='<span class="check-mark" aria-hidden="true"></span><div><h2></h2><p></p></div>';
+    }
+    existing.delete(key);
+    row.dataset.state=['ok','warning','error'].includes(item.status)?item.status:'working';
+    row.querySelector('h2').textContent=String(item.title??'--');
+    row.querySelector('p').textContent=String(item.detail??'--');
+    if(details.children[index]!==row)details.insertBefore(row,details.children[index]||null);
+  });
+  existing.forEach(row=>row.remove());
+  $('title').textContent=model.title||'';
+  $('source').textContent=model.source||'';
+  syncMetadata();
+}
 function render(preserveText=false) {
+  renderDirty = true;
   const prior=new Map();
   if(preserveText)document.querySelectorAll(stagedSelector).forEach((node,index)=>{
     const original=node.getAttribute('aria-label')??node.textContent;
@@ -739,14 +789,9 @@ function render(preserveText=false) {
   }
   if (model.kind === "status") {
     group.visible = false;
+    if(model.refreshTransaction){renderRefreshStatus();return;}
     const unavailable=model.items?.length && model.items.every(item=>['warning','error'].includes(item.status));
     $("summary").innerHTML = `<h1>${unavailable?'Algumas fontes indisponíveis':'Estou me atualizando'}</h1><p class="muted">${escape(model.completed || 0)} / ${escape(model.total || 0)} fontes verificadas</p>`;
-    if(model.refreshTransaction){
-      const total=Math.max(0,Number(model.total)||0),done=Math.max(0,Math.min(total,Number(model.completed)||0));
-      const percent=total?Math.round(done/total*100):0;
-      const current=(model.items||[]).filter(item=>item.status==='working').map(item=>item.title).join(' · ');
-      $("summary").innerHTML=`<h1>${escape(current ? 'Consultando '+current : unavailable ? 'Fontes indisponíveis' : total ? 'Consultas concluídas' : 'Preparando as consultas')}</h1><div class="refresh-progress" role="progressbar" aria-label="Fontes consultadas" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="width:${percent}%"></span></div><p class="muted">${done} / ${total} fontes consultadas · ${percent}%</p>`;
-    }
     $("details").innerHTML = (model.items || []).map((item) => `<div class="check-row" data-state="${["ok","warning","error"].includes(item.status) ? item.status : "working"}"><span class="check-mark" aria-hidden="true"></span><div><h2>${escape(item.title)}</h2><p>${escape(item.detail)}</p></div></div>`).join("");
     document.body.dataset.kind = "status";
     return;
@@ -763,7 +808,7 @@ function render(preserveText=false) {
         .slice(0, model.period === "week" ? 7 : 4)
         .map(
           (d) =>
-            `<div><small>${escape(dateLabel(d.date) || '--')}</small><strong>${number(d.max)}°</strong><small>${number(d.min)}° · ${number(d.rain)}%</small></div>`,
+            `<div><small>${escape(dateLabel(d.date) || '--')}</small>${model.framed ? forecastSymbol(d.code) : ''}<strong>${number(d.max)}°</strong><small>${number(d.min)}° · ${number(d.rain)}%</small></div>`,
         )
         .join("") +
       "</div>";
@@ -827,6 +872,7 @@ function render(preserveText=false) {
 }
 window.updateCore = (value) => {
   if(!value || typeof value!=='object' || Array.isArray(value))return;
+  renderDirty = true;
   if (value.visible === false) {
     model.visible = false;
     return;
@@ -840,6 +886,30 @@ window.updateCore = (value) => {
   value={...value,items:rows(value.items),forecast:rows(value.forecast)};
   value.focus=Math.max(0,Math.min(value.items.length-1,Math.trunc(Number(value.focus)||0)));
   const next = JSON.stringify(value);
+  // A live pinned meter must not rebuild its hologram or restart motion each tick.
+  if(value.kind==='system' && model.kind==='system' && value.compact && model.compact
+      && value.rebuild===false && !value.error && !model.error && document.body.dataset.dismissing!=='true') {
+    model={...value,visible:true};signature=next;
+    const labels=[`CPU ${number(model.cpu_percent)}%`,`RAM ${number(model.ram_percent)}%`];
+    document.querySelectorAll('#summary p').forEach((node,i)=>{if(labels[i])node.textContent=labels[i];});
+    const metrics=[number(model.cpu_percent)+'%',number(model.ram_percent)+'%',number(model.gpu_percent)+'%',number(model.cpu_temp_c)+'°C'];
+    document.querySelectorAll('.metric strong').forEach((node,i)=>{if(metrics[i])node.textContent=metrics[i];});
+    const details=[`${number(model.ram_used_gb)} / ${number(model.ram_total_gb)} GB de memória`,`${model.uptime||'--'} ligado · ${model.process_count??'--'} processos`];
+    document.querySelectorAll('#details > p').forEach((node,i)=>{if(details[i])node.textContent=details[i];});
+    return;
+  }
+  // Progress belongs to the current transaction, not a new presentation scene.
+  const refreshLayout=input=>JSON.stringify(Object.fromEntries(Object.entries(input)
+    .filter(([key])=>!['items','completed','total','count','focus','title','source','observed','visible','rebuild'].includes(key))
+    .sort(([a],[b])=>a.localeCompare(b))));
+  const sameRefresh=value.kind==='status' && model.kind==='status' && value.refreshTransaction && model.refreshTransaction
+    && value.id!=null && value.id!=='' && value.id===model.id && !value.error && !model.error
+    && refreshLayout(value)===refreshLayout(model);
+  if(sameRefresh && document.body.dataset.dismissing!=='true' && model.visible!==false){
+    model={...value,visible:true};
+    if(next!==signature){signature=next;renderRefreshStatus();}
+    return;
+  }
   const identity = JSON.stringify([
     value.presentationId,
     value.kind,
@@ -881,16 +951,25 @@ window.updateCore = (value) => {
 let previous = performance.now();
 let timer;
 let renderWidth=0,renderHeight=0;
+const unitScale = new THREE.Vector3(1,1,1);
+const rimTarget = new THREE.Color();
 function frame() {
   const now = performance.now(),
     dt = Math.min(0.1, (now - previous) / 1000);
   previous = now;
+  if(model.visible===false || document.hidden || innerWidth<1 || innerHeight<1){
+    document.body.dataset.ready='true';
+    timer=setTimeout(frame,250);
+    return;
+  }
   document.body.dataset.hudMotion = reducedMotion() || model.visible === false || document.hidden ? 'reduced' : 'full';
-  if (model.visible !== false && !document.hidden) hudSurface.update(model, innerWidth, innerHeight);
+  const fused=document.body.dataset.newsFusion==='true';
+  if (!fused) hudSurface.update(model, innerWidth, innerHeight);
   if (
     model.narrationDriven &&
     !audioStarted &&
     !cancelled &&
+    !audioFinished &&
     now > audioFallbackAt
   ) {
     model.narrationDriven = false;
@@ -908,12 +987,16 @@ function frame() {
       Math.min(r.text.length, Math.floor((clock - r.start) * (model.compact ? .08 : model.kind==='news' ? .028 : .040))),
     );
     if (count !== r.last) {
+      renderDirty = true;
       r.node.textContent = r.text.slice(0, count);
       r.last = count;
     }
   });
   reveals = reveals.filter((r) => r.last < r.text.length);
-  if (renderer && model.visible !== false && !document.hidden) {
+  const reduced = reducedMotion();
+  // Text/audio clocks keep ticking, but a static projection reuses its last draw.
+  if (renderer && !fused && (!reduced || renderDirty || lastReducedMotion!==reduced
+      || renderWidth!==innerWidth || renderHeight!==innerHeight)) {
     if(!reducedMotion() && !cancelled) motionTime+=dt;
     if(reducedMotion()) {
       pointerEnergy=0;pointerTilt.set(0,0);
@@ -928,20 +1011,22 @@ function frame() {
     if(!cancelled) {
       keyLight.intensity=reducedMotion()?lightTarget:THREE.MathUtils.damp(keyLight.intensity,lightTarget,3,dt);
       if(reducedMotion()) rimLight.color.set(profile.accent);
-      else rimLight.color.lerp(new THREE.Color(profile.accent),Math.min(1,dt*2));
+      else rimLight.color.lerp(rimTarget.set(profile.accent),Math.min(1,dt*2));
     }
     const w = innerWidth,
       h = innerHeight;
     if(w!==renderWidth || h!==renderHeight){
       renderer.setSize(w,h,false);renderWidth=w;renderHeight=h;
     }
+    const context=renderer.getContext();
+    if(!context.drawingBufferWidth || !context.drawingBufferHeight){timer=setTimeout(frame,80);return;}
     const zone =
       model.kind === "news" && !model.compact
         ? { left:0, width:w, bottom: h, height: h }
         : $("symbol-space").getBoundingClientRect();
     renderer.setViewport(zone.left, h - zone.bottom, zone.width, zone.height);
-    camera.aspect = zone.width / Math.max(1,zone.height);
-    camera.updateProjectionMatrix();
+    const aspect = zone.width / Math.max(1,zone.height);
+    if(camera.aspect!==aspect){camera.aspect=aspect;camera.updateProjectionMatrix();}
     const assemblyTime=(cancelled?cancelledAt:now)-started;
     const assembled = Math.max(0, Math.min(1, assemblyTime / 650));
     const exiting=dismissStarted?Math.min(1,(now-dismissStarted)/220):0;
@@ -956,7 +1041,7 @@ function frame() {
         ? 1
         : Math.max(0, Math.min(1, (assemblyTime - index * (model.compact?6:16)) / 650));
       object.scale
-        .copy(object.userData.baseScale || new THREE.Vector3(1, 1, 1))
+        .copy(object.userData.baseScale || unitScale)
         .multiplyScalar(0.01 + 0.99 * (1 - Math.pow(1 - progress, 3)));
       if (object.userData.drawCount)
         object.geometry.setDrawRange(
@@ -1076,6 +1161,8 @@ function frame() {
     document.body.dataset.geometries = renderer.info.memory.geometries;
     document.body.dataset.textures = renderer.info.memory.textures;
     document.body.dataset.lightCount='3';
+    renderDirty = false;
+    lastReducedMotion = reduced;
   }
   document.body.dataset.ready = "true";
   timer = setTimeout(
@@ -1087,6 +1174,7 @@ function frame() {
         : symbolRig && !reducedMotion() && !cancelled ? 33 : 80,
   );
 }
+document.addEventListener('visibilitychange',()=>{renderDirty=true;});
 addEventListener("pagehide", () => {
   surfaceAnimation?.cancel();
   clearTimeout(timer);

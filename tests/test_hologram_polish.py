@@ -32,9 +32,11 @@ class HologramPolishTests(unittest.IsolatedAsyncioTestCase):
             await self.page.set_viewport_size({'width':width,'height':height})
             await self.page.evaluate("window.updateCore({phase:'idle',resting:false,level:0,color:'#bdb2eb'})")
             await self.page.wait_for_timeout(1400)
-            import base64
-            png=await self.page.locator('canvas').evaluate('(canvas)=>canvas.toDataURL()')
-            content=Image.open(BytesIO(base64.b64decode(png.split(',',1)[1]))).convert('RGBA')
+            # With preserveDrawingBuffer=false, read the composited screenshot,
+            # not a cleared WebGL buffer between animation frames.
+            await self.page.evaluate("document.body.style.background='transparent'")
+            png=await self.page.locator('canvas').screenshot(omit_background=True)
+            content=Image.open(BytesIO(png)).convert('RGBA')
             pixel_width,pixel_height=content.size
             self.assertGreater(sum(pixel[3]>30 for pixel in content.getdata()),500)
             # The core must retain breathing room instead of being cropped in portrait.

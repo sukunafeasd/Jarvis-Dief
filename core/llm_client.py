@@ -37,7 +37,7 @@ def get_base_dir() -> Path:
 
 
 BASE_DIR    = get_base_dir()
-CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+from memory.config_manager import CONFIG_FILE as CONFIG_PATH
 
 _DEFAULTS = {
     "llm_url":      "http://localhost:11434",

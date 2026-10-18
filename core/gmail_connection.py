@@ -5,11 +5,19 @@ import threading
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
-CREDENTIALS = BASE / "config/google_credentials.json"
-TOKEN = BASE / "config/token_gmail.bin"
+from core.local_data import ROOT as DATA_ROOT,migrate,atomic_write
+CREDENTIALS = DATA_ROOT/'google_credentials.json'
+TOKEN = DATA_ROOT/'secrets/token_gmail.bin'
+DEFAULT_CREDENTIALS=CREDENTIALS
+DEFAULT_TOKEN=TOKEN
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 LOCK = threading.RLock()
 _seen = None
+
+
+def prepare_storage():
+    if CREDENTIALS==DEFAULT_CREDENTIALS:migrate(BASE/'config/google_credentials.json','google_credentials.json')
+    if TOKEN==DEFAULT_TOKEN:migrate(BASE/'config/token_gmail.bin','secrets/token_gmail.bin')
 
 
 def import_credentials(path):
@@ -19,6 +27,7 @@ def import_credentials(path):
 
 
 def credential_client_id():
+    prepare_storage()
     try:
         return json.loads(CREDENTIALS.read_text(encoding="utf-8")).get("installed", {}).get("client_id", "")
     except (OSError, ValueError, AttributeError):
@@ -34,9 +43,7 @@ def configure_credentials(client_id, client_secret):
                            "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": ["http://localhost"]}}
     CREDENTIALS.parent.mkdir(parents=True, exist_ok=True)
     with LOCK:
-        temporary = CREDENTIALS.with_suffix(".tmp")
-        temporary.write_text(json.dumps(config), encoding="utf-8")
-        temporary.replace(CREDENTIALS)
+        atomic_write(CREDENTIALS,json.dumps(config).encode('utf-8'))
 
 
 def expected_account():
@@ -53,6 +60,7 @@ def save_expected_account(email):
 
 
 def _load_info():
+    prepare_storage()
     if not TOKEN.exists():
         return {}
     import win32crypt
@@ -62,7 +70,6 @@ def _load_info():
 def _save(credentials, account_email=None):
     import win32crypt
     TOKEN.parent.mkdir(parents=True, exist_ok=True)
-    temporary = TOKEN.with_suffix(".tmp")
     value = json.loads(credentials.to_json())
     if account_email is None:
         try:
@@ -73,19 +80,21 @@ def _save(credentials, account_email=None):
             pass
     if account_email:
         value["jarvis_account_email"] = account_email
-    temporary.write_bytes(win32crypt.CryptProtectData(json.dumps(value).encode(), "Dief Jarvis Gmail", None, None, None, 0))
-    temporary.replace(TOKEN)
+    atomic_write(TOKEN,win32crypt.CryptProtectData(json.dumps(value).encode(), "Dief Jarvis Gmail", None, None, None, 0))
 
 
 def _load():
+    prepare_storage()
     if not TOKEN.exists():
         return None
     from google.oauth2.credentials import Credentials
-    return Credentials.from_authorized_user_info(_load_info(), SCOPES)
+    value=_load_info()
+    return Credentials.from_authorized_user_info(value, SCOPES) if value else None
 
 
 def status():
     try:
+        prepare_storage()
         credentials = _load()
         return {"configured": CREDENTIALS.exists(), "connected": bool(credentials and (credentials.valid or credentials.refresh_token)),
                 "account_email": _load_info().get("jarvis_account_email", "") if credentials else "",
@@ -95,6 +104,7 @@ def status():
 
 
 def connect(expected_email=None):
+    prepare_storage()
     if not CREDENTIALS.exists():
         return False, "Importe o JSON OAuth do Google em Conexões > Conectar Gmail."
     with LOCK:
@@ -243,7 +253,8 @@ def poll():
 def disconnect():
     global _seen
     with LOCK:
-        TOKEN.unlink(missing_ok=True)
+        import win32crypt
+        atomic_write(TOKEN,win32crypt.CryptProtectData(b'{}','Dief Jarvis Gmail',None,None,None,0))
         _seen = None
         set_monitor(False)
     return {"ok": True, "note": "Conexão local removida. Para revogar também no Google, use a segurança da sua conta."}

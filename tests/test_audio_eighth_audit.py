@@ -1,5 +1,7 @@
 import asyncio
 import unittest
+import threading
+import time
 from unittest.mock import Mock, AsyncMock, patch
 import test_voice_interrupt
 import main
@@ -9,18 +11,18 @@ class AudioEighthAudit(unittest.IsolatedAsyncioTestCase):
     async def test_audio_write_is_not_held_by_viseme_analysis(self):
         assistant=test_voice_interrupt.assistant_fixture()
         assistant.set_speaking=Mock()
+        assistant._turn_done_event.set();assistant._fish_voice=None
         data=b'\0'*2400
         assistant.audio_in_queue.get=AsyncMock(side_effect=[data,asyncio.CancelledError()])
         stream=Mock();stream.latency=.15
-        written=asyncio.Event()
+        written=threading.Event()
         order=[]
+        def write(data):
+            written.set();order.append('write');return False
+        stream.write.side_effect=write
         async def thread(function,*args):
-            if function==stream.write:
-                written.set()
-                order.append('write')
-                return False
             if function==main._pcm_visemes:
-                await asyncio.wait_for(written.wait(),.1)
+                self.assertTrue(written.wait(.1))
                 order.append('analysis-finished')
                 return []
             return function(*args)
@@ -35,12 +37,14 @@ class AudioEighthAudit(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancelled_analysis_waits_for_audio_write_before_close(self):
         assistant=test_voice_interrupt.assistant_fixture();assistant.set_speaking=Mock()
+        assistant._turn_done_event.set();assistant._fish_voice=None
         assistant.audio_in_queue.get=AsyncMock(return_value=b'\0'*2400)
         stream=Mock();stream.latency=.1
         completed=[]
+        def write(data):
+            time.sleep(.02);completed.append('write');return False
+        stream.write.side_effect=write
         async def thread(function,*args):
-            if function==stream.write:
-                await asyncio.sleep(.02);completed.append('write');return False
             if function==main._pcm_visemes:
                 raise asyncio.CancelledError()
             return function(*args)

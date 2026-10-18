@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-CONFIG = Path(__file__).resolve().parents[1] / "config/api_keys.json"
+from memory.config_manager import CONFIG_FILE as CONFIG
 
 def read_profile():
     try:

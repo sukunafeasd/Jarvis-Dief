@@ -40,15 +40,15 @@ export class HudSurface {
     const w = width, h = height, inset = 5, cut = model.compact ? 10 : 18;
     const path = () => {
       c.beginPath();
-      c.roundRect(inset,inset,w-inset*2,h-inset*2,8);
+      c.roundRect(inset,inset,w-inset*2,h-inset*2,14);
     };
     c.save();
     if (!fact) { path(); c.clip(); }
     const glass = c.createLinearGradient(0, 0, w * .75, h);
-    glass.addColorStop(0, fact ? '#003d6b00' : '#1c4659ff');
-    glass.addColorStop(.23, fact ? '#00437835' : '#102633ff');
-    glass.addColorStop(.72, fact ? '#022d5625' : '#081724ff');
-    glass.addColorStop(1, fact ? '#001d4100' : '#24243aff');
+    glass.addColorStop(0, fact ? '#003d6b00' : '#082438fa');
+    glass.addColorStop(.23, fact ? '#00437835' : '#03131ffa');
+    glass.addColorStop(.72, fact ? '#022d5625' : '#020d18fa');
+    glass.addColorStop(1, fact ? '#001d4100' : '#06334dfa');
     c.fillStyle = glass; c.fillRect(0, 0, w, h);
     // Blueprint lattice fades below long text; stronger around spatial symbols.
     const wash = c.createRadialGradient(w * .3, h * .43, 0, w * .3, h * .43, Math.max(w, h) * .7);
@@ -82,7 +82,7 @@ export class HudSurface {
     }
     if (!fact) {
       // Separate bevel, luminous conductor and fine specular edge give the frame thickness.
-      for (const [size, color, glow] of [[5, '#02060adc', 0], [2, '#4599a989', 0], [1, '#a5efff83', 0]]) {
+      for (const [size, color, glow] of [[8, '#2885bb20', 8], [2, '#5ebbf0a0', 3], [1, '#c9efffcc', 0]]) {
         path(); c.lineWidth = size; c.strokeStyle = color; c.shadowBlur = glow; c.stroke();
       }
       for (const [x, y, sx, sy] of [[inset,inset,1,1],[w-inset,inset,-1,1],
@@ -90,8 +90,8 @@ export class HudSurface {
         c.beginPath(); c.moveTo(x, y + sy * Math.min(55, h / 3));
         c.lineTo(x, y + sy * cut); c.lineTo(x + sx * cut, y);
         c.lineTo(x + sx * Math.min(82, w / 3), y);
-        for (const [size, color, blur] of [[7,'#ff243e24',14],[3,'#ff344bf0',8],[1,'#ffd4d5',2]]) {
-          c.lineWidth = size; c.strokeStyle = color; c.shadowColor = '#ff233c';
+        for (const [size, color, blur] of [[7,'#2585c024',14],[3,'#69caffc0',8],[1,'#ddf4ff',2]]) {
+          c.lineWidth = size; c.strokeStyle = color; c.shadowColor = '#57bfff';
           c.shadowBlur = blur; c.stroke();
         }
       }

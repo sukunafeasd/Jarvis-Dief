@@ -8,10 +8,20 @@ def saved_checks(plugins):
     from core import gmail_connection as gmail
     from core.whatsapp_web import PROFILE, transport
     from core.resource_policy import EXTERNAL, external_status
-    if gmail.status().get('connected'):
-        yield 'gmail', gmail.verify
-    if PROFILE.exists():
+    from memory.config_manager import get_plugin_enabled
+    plugins=list(plugins)
+    settings={item.get('name'):item for item in plugins}
+    def eligible(name):
+        item=settings.get(name)
+        return get_plugin_enabled(name) and (item is None or item.get('valid') and item.get('enabled'))
+    if eligible('gmail_control') and gmail.status().get('connected'):
+        def check_gmail():
+            if not eligible('gmail_control'):return {'ok':False,'state':'disabled','message':'Gmail desativado.'}
+            return gmail.verify()
+        yield 'gmail', check_gmail
+    if eligible('whatsapp_web') and PROFILE.exists():
         def whatsapp():
+            if not eligible('whatsapp_web'):return {'ok':False,'state':'disabled','message':'WhatsApp desativado.'}
             value = transport.call('status')
             connected = bool(value.get('connected'))
             return {'ok': connected, 'state': 'connected' if connected else 'auth_required' if value.get('needs_link') else 'error',
@@ -19,12 +29,21 @@ def saved_checks(plugins):
         yield 'whatsapp', whatsapp
     for plugin in plugins:
         name = plugin.get('name')
-        if name not in EXTERNAL or not plugin.get('valid') or not plugin.get('enabled'):
+        if name not in EXTERNAL or not plugin.get('valid') or not plugin.get('enabled') or not get_plugin_enabled(name):
             continue
         try:
             local = external_status(name)
         except Exception:
             yield name, lambda: {'ok':False,'state':'error','message':'Nao foi possivel consultar a configuracao desta conexao.'}
+            continue
+        from core.extension_suite import CATALOG,verify as verify_extension
+        if name in CATALOG:
+            if local.get('authorized'):yield name,lambda name=name:verify_extension(name)
+            continue
+        if name=='fish_audio':
+            if local.get('configured'):
+                from core.fish_audio import verify
+                yield name,verify
             continue
         if not (local.get('connected') or local.get('authorization_pending') or name == 'mcp_bridge' and local.get('configured')):
             continue
@@ -77,7 +96,13 @@ class ConnectionVerifier:
                 timeout.daemon = True
                 timeout.start()
                 try:
-                    value = callback()
+                    from memory.config_manager import get_plugin_enabled
+                    name={'gmail':'gmail_control','whatsapp':'whatsapp_web'}.get(provider,provider)
+                    if not get_plugin_enabled(name):
+                        value={'ok':False,'state':'disabled','message':'Conexao desativada.'}
+                    else:
+                        value=callback()
+                        if not get_plugin_enabled(name):value={'ok':False,'state':'disabled','message':'Conexao desativada durante a verificacao.'}
                     if isinstance(value, dict):
                         ok = bool(value.get('ok'))
                         state, message = value.get('state', 'connected' if ok else 'error'), value.get('message', '')

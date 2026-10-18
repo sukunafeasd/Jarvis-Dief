@@ -8,37 +8,55 @@ def get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 BASE_DIR    = get_base_dir()
-CONFIG_DIR  = BASE_DIR / "config"
-CONFIG_FILE = CONFIG_DIR / "api_keys.json"
+from core.local_data import ROOT as DATA_ROOT,migrate
+CONFIG_FILE = DATA_ROOT/'api_keys.json'
+DEFAULT_CONFIG_FILE=CONFIG_FILE
+CONFIG_DIR = CONFIG_FILE.parent
+
+def prepare_storage():
+    if CONFIG_FILE==DEFAULT_CONFIG_FILE:migrate(BASE_DIR/'config/api_keys.json','api_keys.json')
+
 
 def ensure_config_dir() -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    prepare_storage()
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def config_exists() -> bool:
+    prepare_storage()
     return CONFIG_FILE.exists()
 
-def save_api_keys(gemini_api_key: str) -> None:
-    ensure_config_dir()
+def _reject_json_constant(value):
+    raise ValueError('Configuracao invalida; arquivo existente preservado.')
 
-    data: dict = {}
-    if CONFIG_FILE.exists():
+
+def mutate_config(mutation, *, path=None) -> None:
+    """Serialize a strict read-modify-write; failed mutations preserve the file."""
+    from core.local_data import LOCK, atomic_write
+    with LOCK:
+        target = Path(path) if path is not None else CONFIG_FILE
+        if target == CONFIG_FILE:
+            prepare_storage()
         try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
+            data = json.loads(target.read_text(encoding='utf-8'), parse_constant=_reject_json_constant)
+        except FileNotFoundError:
             data = {}
+        if not isinstance(data, dict):
+            raise ValueError('Configuracao invalida; arquivo existente preservado.')
+        mutation(data)
+        raw = json.dumps(data, indent=4, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        atomic_write(target, raw)
 
-    data["gemini_api_key"] = gemini_api_key.strip()
 
-    CONFIG_FILE.write_text(
-        json.dumps(data, indent=2),
-        encoding="utf-8"
-    )
+def save_api_keys(gemini_api_key: str, *, path=None) -> None:
+    mutate_config(lambda data: data.update(gemini_api_key=gemini_api_key.strip()), path=path)
 
 def load_api_keys() -> dict:
+    prepare_storage()
     if not CONFIG_FILE.exists():
         return {}
     try:
-        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except Exception as e:
         print(f"❌ Failed to load api_keys.json: {e}")
         return {}
@@ -63,16 +81,7 @@ def get_user_name() -> str:
 
 def save_assistant_config(assistant_name: str, user_name: str) -> None:
     """Persist assistant name and user name to config."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data["assistant_name"] = assistant_name.strip() or "DIEF JARVIS"
-    data["user_name"] = user_name.strip()
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _patch_config(assistant_name=assistant_name.strip() or 'DIEF JARVIS', user_name=user_name.strip())
 
 
 # ── Assistant voice ──────────────────────────────────────────────────────────
@@ -92,16 +101,8 @@ def get_voice() -> str:
 def save_voice(voice_name: str) -> None:
     """Persist the chosen Live voice. Unknown names collapse to the default so a
     bad value can never reach the API and break the session."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
     v = (voice_name or "").strip()
-    data["voice_name"] = v if v in AVAILABLE_VOICES else DEFAULT_VOICE
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _patch_config(voice_name=v if v in AVAILABLE_VOICES else DEFAULT_VOICE)
 
 
 def get_wake_word_enabled() -> bool:
@@ -110,15 +111,7 @@ def get_wake_word_enabled() -> bool:
 
 
 def save_wake_word_enabled(enabled: bool) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data["wake_word_enabled"] = bool(enabled)
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _save_flag('wake_word_enabled', bool(enabled))
 
 
 def get_push_to_talk_enabled() -> bool:
@@ -204,31 +197,23 @@ def get_turn_tuning() -> dict:
 
 
 def save_turn_tuning(values: dict) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    cur = data.get("turn_tuning")
-    cur = dict(cur) if isinstance(cur, dict) else {}
-    cur.update(values or {})
-    data["turn_tuning"] = cur
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    def update(data):
+        cur = data.get('turn_tuning', {})
+        if not isinstance(cur, dict):
+            raise ValueError('Configuracao de turnos invalida; arquivo existente preservado.')
+        data['turn_tuning'] = {**cur, **(values or {})}
+    mutate_config(update)
 
 
 def get_proactive_audio_enabled() -> bool:
     """Whether the model gets to decide an utterance was not aimed at it and
     stay quiet.
 
-    On by default — it is what stops the assistant answering the room. But it
-    is also the first thing to switch off if replies ever seem to arrive a turn
-    late: what looks like lag is usually the model having judged your previous
-    sentence as not addressed to it, and only changing its mind once the next
-    one arrives.
+    Off by default: server-side selective silence can ignore direct calls and
+    make a normal conversation appear a turn behind. Explicit opt-in remains
+    available; local echo/VAD guards still protect the microphone path.
     """
-    return bool(load_api_keys().get("proactive_audio", True))
+    return bool(load_api_keys().get("proactive_audio", False))
 
 
 def save_proactive_audio_enabled(enabled: bool) -> None:
@@ -254,15 +239,7 @@ def save_media_resolution(value: str) -> None:
 
 def _save_flag(key: str, value) -> None:
     """Read-modify-write one key without disturbing the rest of the config."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data[key] = bool(value) if isinstance(value, bool) else value
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _patch_config(**{key: value})
 
 
 def get_brief_enabled() -> bool:
@@ -270,15 +247,7 @@ def get_brief_enabled() -> bool:
 
 
 def save_brief_enabled(enabled: bool) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data["morning_brief_enabled"] = enabled
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _save_flag('morning_brief_enabled', enabled)
 
 
 # ── Audio devices ────────────────────────────────────────────────────────────
@@ -289,20 +258,8 @@ def save_brief_enabled(enabled: bool) -> None:
 # so unplugging a headset degrades to the built-in speakers instead of crashing.
 
 def _patch_config(**fields) -> None:
-    """Read-modify-write one or more keys in api_keys.json.
-
-    Every setter in this file open-coded this. Collapsing it here means a new
-    setting is one line, and there is one place where a corrupt config file is
-    handled instead of nine."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data.update(fields)
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    """Atomically merge one or more top-level preferences."""
+    mutate_config(lambda data: data.update(fields))
 
 
 def get_input_device() -> str:
@@ -325,7 +282,9 @@ def save_output_device(name: str) -> None:
 
 def get_plugin_enabled(plugin_name: str) -> bool:
     """Plugins are enabled by default the moment they're discovered (opt-out model)."""
-    return load_api_keys().get("plugins_enabled", {}).get(plugin_name, True)
+    plugins = load_api_keys().get('plugins_enabled')
+    plugins = plugins if isinstance(plugins, dict) else {}
+    return bool(plugins.get(plugin_name, True))
 
 
 # ── Per-plugin settings ("tokens" / connection details) ───────────────────────
@@ -349,36 +308,19 @@ def get_plugin_setting(namespace: str, key: str, default=None):
 def save_plugin_config(namespace: str, values: dict) -> None:
     """Merge `values` into a namespace's stored config (read-modify-write, like
     every other helper here). Only the provided keys are touched."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    pc = data.get("plugin_config")
-    if not isinstance(pc, dict):
-        pc = {}
-    cur = pc.get(namespace)
-    if not isinstance(cur, dict):
-        cur = {}
-    cur.update(values)
-    pc[namespace] = cur
-    data["plugin_config"] = pc
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    def update(data):
+        pc=data.get('plugin_config',{})
+        if not isinstance(pc,dict):raise ValueError('Configuracao de plugins invalida; arquivo existente preservado.')
+        cur=pc.get(namespace,{})
+        if not isinstance(cur,dict):raise ValueError('Configuracao do plugin invalida; arquivo existente preservado.')
+        pc[namespace]={**cur,**values};data['plugin_config']=pc
+    mutate_config(update)
 
 
 def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    plugins_cfg = data.get("plugins_enabled")
-    if not isinstance(plugins_cfg, dict):
-        plugins_cfg = {}
-    plugins_cfg[plugin_name] = enabled
-    data["plugins_enabled"] = plugins_cfg
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    def update(data):
+        plugins_cfg=data.get('plugins_enabled',{})
+        if not isinstance(plugins_cfg,dict):raise ValueError('Configuracao de plugins invalida; arquivo existente preservado.')
+        plugins_cfg[plugin_name]=enabled
+        data['plugins_enabled']=plugins_cfg
+    mutate_config(update)

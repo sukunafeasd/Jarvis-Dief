@@ -16,6 +16,7 @@ class EighthBridgeAudit(unittest.TestCase):
         self.window.showFullScreen()
         QTest.keyClick(self.window._content_display,Qt.Key.Key_F11)
         self.assertFalse(self.window.isFullScreen())
+        QTest.qWait(180)
         QTest.keyClick(self.window._content_display,Qt.Key.Key_F11)
         self.assertTrue(self.window.isFullScreen())
 
@@ -40,7 +41,9 @@ class EighthVisualAudit(unittest.IsolatedAsyncioTestCase):
     async def test_staged_core_does_not_flash_before_entrance(self):
         await self.page.goto(self.url+'/index.html?staged=1')
         await self.page.wait_for_function('typeof window.hologramDiagnostics === "function"')
-        self.assertFalse(await self.page.evaluate('window.hologramDiagnostics().coreVisible'))
+        before=await self.page.evaluate('window.hologramDiagnostics()')
+        self.assertTrue(before['coreVisible'])
+        self.assertEqual(before['travel'],24)
         await self.page.evaluate('window.updateEnvironment({staging:false,entrance:{at:Date.now(),duration:4300,cancelAt:null}})')
         await self.page.wait_for_timeout(150)
         first=await self.page.evaluate('window.hologramDiagnostics()')

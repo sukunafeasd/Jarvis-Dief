@@ -60,7 +60,7 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         async def collect(*args):
             await release.wait()
             return {'data':{'tasks':{'count':2}},'unavailable':['news']}
-        with patch('core.session_refresh.collect_updates',side_effect=collect), patch('core.daily_briefing.mark_delivered') as mark:
+        with patch('core.fish_audio.selected',return_value=False),patch('core.session_refresh.collect_updates',side_effect=collect), patch('core.daily_briefing.mark_delivered') as mark:
             task=asyncio.create_task(assistant._send_startup_briefing())
             await asyncio.sleep(.05)
             mark.assert_not_called()
@@ -78,7 +78,7 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         assistant._tail_active=Mock(return_value=False);assistant._turn_done_event=asyncio.Event();assistant.ui=Mock()
         async def wait(*args):
             await asyncio.Event().wait()
-        with patch('core.session_refresh.collect_updates',side_effect=wait),patch('core.daily_briefing.mark_delivered') as mark:
+        with patch('core.fish_audio.selected',return_value=False),patch('core.session_refresh.collect_updates',side_effect=wait),patch('core.daily_briefing.mark_delivered') as mark:
             task=asyncio.create_task(assistant._send_startup_briefing());await asyncio.sleep(.02)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):

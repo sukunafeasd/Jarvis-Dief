@@ -96,7 +96,7 @@ class ResourceTests(unittest.TestCase):
         (self.root/'memory/long_term.json').write_text('{"identity":{}}')
         (self.root/'config/api_keys.json').write_text('{"private":"never-export"}')
         path=self.root/'backup.zip'
-        with patch.object(resource_backups,'ROOT',self.root),patch('memory.config_manager.CONFIG_FILE',self.root/'config/api_keys.json'):resource_backups.create(path)
+        with patch.object(resource_backups,'ROOT',self.root),patch('memory.memory_manager.MEMORY_PATH',self.root/'memory/long_term.json'),patch('memory.config_manager.CONFIG_FILE',self.root/'config/api_keys.json'):resource_backups.create(path)
         result=resource_backups.inspect(path)
         self.assertEqual(result['files'],['memory/long_term.json','preferences.json']);self.assertFalse(result['credentials_included'])
         import zipfile

@@ -30,17 +30,32 @@ def put(kind, title, body='', metadata=None, identifier=None):
     if len(str(body)) > 100000 or len(str(title)) > 300:
         raise ValueError('Registro acima do limite permitido.')
     identifier = identifier or uuid.uuid4().hex
+    if metadata is not None and not isinstance(metadata,dict):
+        raise ValueError('Metadados precisam ser um objeto.')
     meta = json.dumps(metadata or {}, ensure_ascii=False)
     if len(meta) > 12000:
         raise ValueError('Metadados acima do limite permitido.')
     with closing(connection()) as db, db:
+        # Validation and upsert must share the write reservation; otherwise a
+        # concurrent insert can change the record kind after our SELECT.
+        db.execute('BEGIN IMMEDIATE')
         old = db.execute('SELECT kind FROM records WHERE id=?', (identifier,)).fetchone()
         if old and old['kind'] != kind:
             raise ValueError('O identificador pertence a outro tipo de registro.')
         if not old and db.execute('SELECT COUNT(*) FROM records').fetchone()[0] >= 5000:
             raise ValueError('Limite de registros atingido; nenhum dado antigo foi removido.')
+        if kind=='project':
+            parent=(metadata or {}).get('parent_id');seen={identifier}
+            while parent:
+                if not isinstance(parent,str) or parent in seen:
+                    raise ValueError('A hierarquia do projeto não pode conter ciclos.')
+                seen.add(parent)
+                ancestor=db.execute("SELECT metadata FROM records WHERE kind='project' AND id=?",(parent,)).fetchone()
+                if ancestor is None:raise ValueError('Projeto pai não encontrado.')
+                parent=json.loads(ancestor['metadata']).get('parent_id')
         db.execute('INSERT INTO records(id,kind,title,body,metadata) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,metadata=excluded.metadata,updated=CURRENT_TIMESTAMP', (identifier,kind,str(title).strip(),str(body),meta))
-    return read(kind, identifier)
+        saved=db.execute('SELECT * FROM records WHERE kind=? AND id=?',(kind,identifier)).fetchone()
+    return {**dict(saved),'metadata':json.loads(saved['metadata'])}
 
 
 def read(kind, identifier):

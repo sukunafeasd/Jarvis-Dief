@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from memory.config_manager import get_plugin_enabled, get_plugin_config
+from memory.config_manager import get_plugin_enabled, load_api_keys
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -114,8 +114,12 @@ class PluginRegistry:
         """
         seen: set[str] = set()
         out: list[dict] = []
+        config = load_api_keys()
+        enabled = config.get('plugins_enabled', {})
+        values = config.get('plugin_config', {})
+        if not isinstance(values, dict):values = {}
         for name, rec in self._plugins.items():
-            if not rec.settings or not get_plugin_enabled(name):
+            if not rec.settings or not enabled.get(name, True):
                 continue
             ns = rec.settings.get("namespace") or rec.name
             if ns in seen:
@@ -126,7 +130,7 @@ class PluginRegistry:
                 "namespace": ns,
                 "title":     rec.settings.get("title") or rec.name,
                 "fields":    rec.settings.get("fields", []),
-                "values":    get_plugin_config(ns),
+                "values":    copy.deepcopy(values.get(ns)) if isinstance(values.get(ns), dict) else {},
                 "action":    rec.settings.get("action"),   # optional test/connect button
                 "setup_url": rec.settings.get("setup_url"),
                 "setup_label": rec.settings.get("setup_label"),
@@ -135,6 +139,7 @@ class PluginRegistry:
 
     # -- called by ui.py's Plugin Manager overlay --
     def list_for_ui(self) -> list[dict]:
+        enabled = load_api_keys().get('plugins_enabled', {})
         out = []
         for rec in self._all_records:
             out.append({
@@ -143,7 +148,7 @@ class PluginRegistry:
                 "file": rec.file,
                 "valid": rec.valid,
                 "error": rec.error,
-                "enabled": get_plugin_enabled(rec.name) if rec.valid else False,
+                "enabled": enabled.get(rec.name, True) if rec.valid else False,
             })
         return out
 

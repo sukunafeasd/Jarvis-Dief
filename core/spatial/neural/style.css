@@ -1,0 +1,14 @@
+.neural-fragment{position:absolute;left:0;top:0;z-index:3;border:0;background:none;color:#f3bbc4;text-align:left;font:12px "Bahnschrift","Segoe UI",sans-serif;padding:0 0 0 10px;cursor:pointer;text-shadow:0 1px 8px #000;transition:color .4s;max-height:135px;overflow:hidden}
+.neural-fragment::before{content:"";position:absolute;left:0;top:4px;width:4px;height:4px;border-radius:50%;background:#ff6275;box-shadow:0 0 12px #ff3447}
+.neural-fragment strong{display:block;font-size:12px;line-height:1.3;font-weight:500;overflow-wrap:anywhere}
+.neural-fragment q{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45;margin-top:6px;font-size:11px;color:#c5d7df;overflow-wrap:anywhere}
+.neural-fragment small{display:block;font-size:9px;line-height:1.4;margin-top:6px;color:#8ca5b3;overflow-wrap:anywhere}
+.neural-fragment{color:var(--neural-color,#f3bbc4)}
+.neural-fragment::before{background:var(--neural-color,#ff6275);box-shadow:0 0 12px var(--neural-color,#ff3447)}
+.neural-fragment[data-active=true]{color:var(--neural-accent,#90f3ff)}.neural-fragment[data-active=true]::before{background:var(--neural-accent,#71f3ff);box-shadow:0 0 15px var(--neural-color,#3bdfff)}
+.neural-fragment:focus-visible{outline:1px solid #71f3ff;outline-offset:3px}
+.neural-fragment[hidden]{display:none}
+.neural-status{position:absolute;left:50%;bottom:9%;transform:translateX(-50%);max-width:80%;text-align:center;color:var(--neural-accent,#ffccd3);font:12px "Bahnschrift","Segoe UI",sans-serif;text-shadow:0 1px 8px #000;pointer-events:none}
+.neural-status[hidden]{display:none}
+@media(max-width:600px){.neural-fragment{font-size:10px;max-height:115px}.neural-fragment strong{font-size:11px}.neural-fragment q{font-size:10px}.neural-fragment small{font-size:8px}}
+@media(prefers-reduced-motion:reduce){.neural-fragment{transition:none}}

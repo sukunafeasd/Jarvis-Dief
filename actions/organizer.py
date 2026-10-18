@@ -64,7 +64,8 @@ def organizer_action(parameters, player=None, session_memory=None):
             if action=='read':
                 record=db.execute('SELECT * FROM entries WHERE id=? AND domain=?',(entry_id,domain)).fetchone()
                 if not record:return json.dumps({'ok':False,'error':'Registro não encontrado.'},ensure_ascii=False)
-                data={'kind':domain,'title':'TAREFA' if domain=='tasks' else 'COMPROMISSO','items':[dict(record)],'count':0 if record['done'] else 1,'source':'Registros locais'}
+                data={'kind':domain,'title':'TAREFA' if domain=='tasks' else 'COMPROMISSO','items':[dict(record)],'count':0 if record['done'] else 1,'source':'Registros locais',
+                      'refresh':{'provider':'organizer','parameters':{'domain':domain,'action':'read','id':entry_id}}}
                 if player:player.show_manifestation(data)
                 return json.dumps({'ok':True,'action':action,'data':data},ensure_ascii=False)
             query = "UPDATE entries SET done=1 WHERE id=? AND domain=?" if action == "complete" else "DELETE FROM entries WHERE id=? AND domain=?"
@@ -84,6 +85,8 @@ def organizer_action(parameters, player=None, session_memory=None):
         count = db.execute('SELECT COUNT(*) FROM entries WHERE '+where,values).fetchone()[0]
     model = {"kind": domain, "title": "TAREFAS" if domain == "tasks" else "AGENDA",
              "items": items, "count": count, "source": "Agenda local" if domain == "calendar" else "Tarefas locais"}
+    model['refresh']={'provider':'organizer','parameters':{'domain':domain,'action':'list',
+        **{key:parameters[key] for key in ('query','date_from','date_to','offset','limit') if key in parameters}}}
     if player:
         player.show_manifestation(model)
     if session_memory:session_memory.record_collection(domain,items,offset=offset,next_offset=offset+len(items) if offset+len(items)<count else None)

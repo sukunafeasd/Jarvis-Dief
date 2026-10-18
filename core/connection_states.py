@@ -70,7 +70,8 @@ def resolve(provider,local,checked=None,plugin=None):
         return checked.get('state','available' if local['local_available'] else 'error')
     if provider=='desktop':return checked.get('state','available' if plugin.get('valid',True) else 'broken')
     if provider=='iphone':return 'unverified'
-    if provider in ('google_calendar','google_drive','spotify_control','gmail_compose','home_automation','outlook_service','mcp_bridge','notion_service'):
+    if provider=='fish_audio':return checked.get('state','pending' if local.get('configured') else 'disconnected')
+    if provider in ('google_calendar','google_drive','spotify_control','gmail_compose','home_automation','outlook_service','mcp_bridge','notion_service','github_mcp','context7','deep_research'):
         return checked.get('state','pending' if local.get('connected') or local.get('authorization_pending') else 'disconnected')
     if plugin.get('valid') and plugin.get('enabled'):return checked.get('state','local')
     return 'unverified'

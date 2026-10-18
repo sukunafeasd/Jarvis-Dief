@@ -43,7 +43,7 @@ def _get_base_dir() -> Path:
 
 
 BASE_DIR        = _get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+from memory.config_manager import CONFIG_FILE as API_CONFIG_PATH
 
 HEADERS = {
     "User-Agent": (

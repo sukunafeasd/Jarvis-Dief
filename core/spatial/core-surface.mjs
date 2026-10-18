@@ -22,11 +22,13 @@ export function coreSkinMaterial(color){
         float contour=pow(max(0.,dot(normal,normalize(vec3(.65,.35,-.75)))),8.);
         float satin=pow(max(0.,dot(reflect(-normalize(vec3(.7,.2,1.)),normal),normalize(view))),48.);
         float seam=smoothstep(.96,1.,cos(atan(p.z,p.x)*12.))*smoothstep(.88,1.,cos(p.y*18.));
+        float conductor=pow(.5+.5*sin(atan(p.z,p.x)*6.-p.y*4.-time*.55),28.);
+        float signal=conductor*pow(key,3.)*(.012+energy*.045);
         float reveal=smoothstep(-.08,.08,assembly*3.16-1.58-p.y);
         vec3 steel=vec3(.008,.012,.018)+tint*(.08+key*.14)+brushed*.001;
         vec3 edgeTint=mix(tint,vec3(.94,.64,.27),alert*.55);
         vec3 highlight=mix(edgeTint,vec3(.98,.75,.65),.08)*(rim*(.72+focus*.07)+pow(key,12.)*.18+reflection*.065);
-        gl_FragColor=vec4(steel+highlight+vec3(.65,.76,.84)*(fill*.012+satin*.026)+tint*(solid*(.48+key*.35)+contour*.05+interference*.014+etching*.013+seam*.018)+grain*.0015,min(1.,.12+rim*.46+solid*.62+energy*.04)*visibility*reveal);
+        gl_FragColor=vec4(steel+highlight+vec3(.65,.76,.84)*(fill*.012+satin*.038)+tint*(solid*(.48+key*.35)+contour*.05+interference*.014+etching*.013+seam*.018+signal)+grain*.0015,min(1.,.12+rim*.46+solid*.62+energy*.04)*visibility*reveal);
         #include <colorspace_fragment>
       }`});
 }

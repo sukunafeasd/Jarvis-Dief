@@ -2,7 +2,7 @@
 import json
 
 
-def respond(callback,player=None,kind=None,title=None,tool=None):
+def respond(callback,player=None,kind=None,title=None,tool=None,refresh=None):
     try:
         data=callback();result={'ok':True,**data}
         if player and kind:
@@ -12,7 +12,7 @@ def respond(callback,player=None,kind=None,title=None,tool=None):
                 'detail':item.get('description') or item.get('mimeType') or ', '.join(item.get('artists',[])),
                 'due':item.get('start',{}).get('dateTime',item.get('start',{}).get('date',''))} for item in items]
             player.show_manifestation({'kind':kind,'title':title,'items':display,'source':title,'count':len(display),
-                'tool':tool,'emptyText':'Nenhum item encontrado nesta consulta.'})
+                'tool':tool,'emptyText':'Nenhum item encontrado nesta consulta.',**({'refresh':refresh} if refresh else {})})
         return json.dumps(result,ensure_ascii=False)
     except Exception as error:
         code=getattr(getattr(error,'resp',None),'status',None) or getattr(error,'http_status',None)

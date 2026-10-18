@@ -15,7 +15,8 @@ def safe_path(value):
     if not str(value or '').strip():raise ValueError('Informe um caminho explicito.')
     path=Path(value).expanduser().resolve()
     root=Path(__file__).resolve().parents[1]
-    if path.is_relative_to(root/'config') or any(part.casefold() in SKIP for part in path.parts):
+    from core.local_data import ROOT as PRIVATE_DATA
+    if path.is_relative_to(root/'config') or path.is_relative_to(PRIVATE_DATA.resolve()) or any(part.casefold() in SKIP for part in path.parts):
         raise ValueError('Pasta privada, de credenciais ou de dependencias nao permitida.')
     if path.name.casefold().startswith('.env') or path.name.casefold() in ('api_keys.json','credentials.json','google_credentials.json') or path.suffix.casefold() in ('.pem','.key','.pfx','.p12'):
         raise ValueError('Arquivo de credenciais nao permitido.')

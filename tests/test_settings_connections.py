@@ -85,6 +85,73 @@ class ConnectionsTests(unittest.TestCase):
             row.action.click();check.assert_called_once();connect.assert_not_called()
         self.finish('gmail','error');self.assertEqual(row.action.text(),'Testar novamente')
 
+    def test_categories_keep_accounts_native_and_skills_separate(self):
+        self.assertEqual([self.page.categories.tabText(i) for i in range(3)],['Contas','Plugins nativos','Skills'])
+        self.assertIs(self.page.rows['gmail'].parentWidget(),self.page.body)
+        self.assertIs(self.page.rows['plugin:sample_plugin'].parentWidget(),self.page.native_body)
+        self.assertGreaterEqual(len(self.page.skill_rows),27)
+        self.assertTrue(all(row.status.text()=='Ativa' for row in self.page.skill_rows.values()))
+        for index in range(3):
+            self.page.categories.setCurrentIndex(index)
+            self.assertEqual(self.page.pages.currentIndex(),index)
+
+    def test_connection_editor_can_reopen_and_save_without_disappearing(self):
+        self.window.get_plugin_settings=lambda:[{'namespace':'sample_plugin','title':'Teste','fields':[{'key':'key','type':'secret','label':'Chave'}]}]
+        self.hub.show();self.hub.open_page('connections')
+        with patch('memory.config_manager.save_plugin_config') as save:
+            for value in ('first-synthetic','second-synthetic'):
+                self.hub.open_plugin_settings('sample_plugin');self.app.processEvents()
+                panel=self.hub._detail_overlay
+                self.assertTrue(panel.isVisible())
+                field=panel._widgets[('sample_plugin','key')]
+                from PyQt6.QtWidgets import QLineEdit
+                self.assertEqual(field.echoMode(),QLineEdit.EchoMode.Password)
+                field.setText(value);panel._save_all()
+                save.assert_called_with('sample_plugin',{'key':value})
+                self.assertIn('Salvo',panel._status_labels['sample_plugin'].text())
+                panel.hide();self.app.processEvents();self.app.processEvents()
+            self.assertEqual(save.call_count,2)
+
+    def test_save_error_is_visible_and_keeps_inflight_action_locked(self):
+        import ui
+        panel=ui.PluginSettingsOverlay([{'namespace':'sample_plugin','fields':[],
+            'action':{'label':'Testar','run':lambda values:(True,'OK')}}],self.hub)
+        self.addCleanup(panel.deleteLater)
+        panel._running_actions.add('sample_plugin');panel._action_buttons['sample_plugin'].setEnabled(False)
+        with patch('memory.config_manager.save_plugin_config',side_effect=OSError('synthetic')):
+            panel._save_all()
+        self.assertTrue(panel._status_labels['sample_plugin'].text())
+        self.assertIn('sample_plugin',panel._running_actions)
+        self.assertFalse(panel._action_buttons['sample_plugin'].isEnabled())
+        panel._on_test_done('sample_plugin',True,'Verificado')
+        self.assertTrue(panel._action_buttons['sample_plugin'].isEnabled())
+
+    def test_editor_test_button_runs_once_and_displays_result(self):
+        import ui
+        release=threading.Event();callback=Mock(side_effect=lambda values:(release.wait(2),'Teste concluido'))
+        panel=ui.PluginSettingsOverlay([{'namespace':'sample_plugin','fields':[],
+            'action':{'label':'Testar','run':callback}}],self.hub)
+        self.addCleanup(panel.deleteLater)
+        with patch('memory.config_manager.save_plugin_config'):
+            panel._action_buttons['sample_plugin'].click()
+            self.assertFalse(panel._action_buttons['sample_plugin'].isEnabled())
+            panel._action_buttons['sample_plugin'].click();release.set()
+            deadline=time.monotonic()+3
+            while panel._running_actions and time.monotonic()<deadline:
+                self.app.processEvents();time.sleep(.01)
+        callback.assert_called_once_with({})
+        self.assertEqual(panel._status_labels['sample_plugin'].text(),'Teste concluido')
+        self.assertTrue(panel._action_buttons['sample_plugin'].isEnabled())
+
+    def test_native_editor_result_replaces_previous_error(self):
+        name='document_reader'
+        self.window.get_plugins=lambda:[{'name':name,'valid':True,'enabled':True}]
+        self.hub.refresh();self.finish('plugin:'+name,'error')
+        with patch('core.resource_policy.local_status',return_value={'available':True}):
+            self.hub._plugin_authorization_finished(name,True,'Disponível')
+        self.assertEqual(self.hub._connection_checks.get('plugin:'+name)['state'],'connected')
+        self.assertNotEqual(self.page.rows['plugin:'+name].status.text(),'Falha no teste')
+
     def test_disconnected_opens_credentials_not_oauth(self):
         self.gmail_status['connected']=False;self.page._local_at=0;self.hub.refresh()
         with patch.object(self.hub,'connect_gmail') as connect:

@@ -66,7 +66,9 @@ class ConnectionTests(unittest.TestCase):
              "google_drive","spotify_control","document_reader","personal_routines"}
               | {"local_resources","file_library","task_execution","office_resources","resource_backups",
                  "gmail_compose","home_automation","resource_diagnostics","desktop_resources","outlook_service",
-                 "mcp_bridge","resource_monitor","resource_updates","calendar_planning","notion_service"})
+                 "mcp_bridge","resource_monitor","resource_updates","calendar_planning","notion_service"}
+              | {"playwright_mcp","windows_mcp","markitdown","planet_knowledge","qdrant_memory",
+                 "github_mcp","context7","deep_research","local_transcription","fish_audio","skill_library"})
 
     def test_desktop_ambiguous_controls_never_invoke(self):
         from core.windows_accessibility import operate

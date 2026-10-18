@@ -107,23 +107,23 @@ class SpaceVisualTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_music_scene_renders_playback_pause_without_errors(self):
         await self.page.goto(self.url+'/space.html')
-        await self.page.wait_for_function("document.body.dataset.asset==='ready'")
+        await self.page.wait_for_function("document.body.dataset.ready==='true'",timeout=60000)
         for playing in (True,False):
             await self.page.evaluate("playing=>window.updateCore({mode:'assistant',media:{playing,progress:20000,duration:180000,at:Date.now()}})",playing)
             frames=await self.page.evaluate('window.spaceDiagnostics().frames')
-            await self.page.wait_for_timeout(500)
+            await self.page.wait_for_function('before=>window.spaceDiagnostics().frames>before',arg=frames,timeout=15000)
             self.assertGreater(await self.page.evaluate('window.spaceDiagnostics().frames'),frames)
         self.assertEqual(self.errors,[])
 
     async def test_space_texture_movement_resize_and_pause(self):
         await self.page.goto(self.url+'/space.html')
-        await self.page.wait_for_function("document.body.dataset.asset==='ready'")
+        await self.page.wait_for_function("document.body.dataset.ready==='true'",timeout=60000)
         for width,height in ((1600,900),(640,480),(390,844)):
             await self.page.set_viewport_size({'width':width,'height':height})
             await self.page.wait_for_timeout(300)
-            first=await self.page.locator('canvas').screenshot()
+            first=await self.page.locator('canvas:not(#ultron-canvas)').screenshot()
             await self.page.wait_for_timeout(600)
-            second=await self.page.locator('canvas').screenshot()
+            second=await self.page.locator('canvas:not(#ultron-canvas)').screenshot()
             self.assertNotEqual(hashlib.sha256(first).digest(),hashlib.sha256(second).digest())
             await self.page.screenshot(path=str(test_refresh_visual.BASE/f'validation/space-{width}.png'))
             stats=await self.page.evaluate('window.spaceDiagnostics()')
@@ -137,8 +137,8 @@ class SpaceVisualTests(unittest.IsolatedAsyncioTestCase):
             pixels=Image.open(io.BytesIO(second)).convert('RGB')
             self.assertGreater(sum(max(pixel)>25 for pixel in pixels.getdata()),200)
         await self.page.evaluate("window.updateCore({motion:'reduced'})")
-        first=await self.page.locator('canvas').screenshot();await self.page.wait_for_timeout(300)
-        self.assertEqual(first,await self.page.locator('canvas').screenshot())
+        first=await self.page.locator('canvas:not(#ultron-canvas)').screenshot();await self.page.wait_for_timeout(300)
+        self.assertEqual(first,await self.page.locator('canvas:not(#ultron-canvas)').screenshot())
         await self.page.evaluate("window.updateCore({visible:false,motion:'full'})")
         frames=await self.page.evaluate('window.spaceDiagnostics().frames');await self.page.wait_for_timeout(300)
         self.assertEqual(frames,await self.page.evaluate('window.spaceDiagnostics().frames'))

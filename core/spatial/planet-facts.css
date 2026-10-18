@@ -1,0 +1,10 @@
+#planet-label{width:292px;max-width:calc(100vw - 32px);padding:14px 16px;background:linear-gradient(100deg,rgba(4,13,24,.91),rgba(4,13,24,.55));border:0;border-left:2px solid #6dd9e9;box-shadow:inset 8px 0 20px -18px #76dbf2;color:#e4f6fa;backdrop-filter:blur(8px)}
+#planet-label[hidden]{display:none}
+#planet-label strong{font-size:21px;font-weight:600;text-shadow:0 0 16px #57a9ba66}
+#planet-label .planet-kind{font-size:12px;color:#8acdd9;margin:4px 0 12px}
+#planet-label dl{margin:0;display:grid;grid-template-columns:80px minmax(0,1fr);gap:9px 12px;font-size:12px;line-height:1.45}
+#planet-label dt{color:#89a9b7}#planet-label dd{margin:0;color:#f0fbff;font-weight:500}
+#planet-label .planet-fact{border-top:1px solid #4a7e8b55;padding-top:10px;line-height:1.5;font-size:12px;color:#bbdce4;margin:12px 0 8px}
+#planet-label .planet-disclaimer{font-size:10px;color:#7997a5;line-height:1.5}
+@media(max-height:600px){#planet-label{padding:10px 12px;width:260px}#planet-label dl{gap:5px 8px}#planet-label .planet-fact{margin:8px 0}}
+@media(prefers-reduced-motion:no-preference){#planet-label{animation:planet-facts-reveal .4s ease-out}@keyframes planet-facts-reveal{from{opacity:0;filter:blur(2px)}to{opacity:1;filter:blur(0)}}}

@@ -168,7 +168,8 @@ class InterruptionIntegrationTests(unittest.IsolatedAsyncioTestCase):
         assistant.interrupt()
         self.assertFalse(assistant._interrupted)
         assistant.session=session_for([response(data=b'new',server_content=content(output_transcription=NS(text='Nova resposta'),turn_complete=True))])
-        with self.assertRaises(asyncio.CancelledError):await assistant._receive_audio()
+        with patch('core.fish_audio.enabled',return_value=False),patch('memory.config_manager.load_api_keys',return_value={'speech_provider':'gemini'}):
+            with self.assertRaises(asyncio.CancelledError):await assistant._receive_audio()
         self.assertEqual(assistant.audio_in_queue.get_nowait(),b'new')
         self.assertFalse(assistant._server_turn_open)
     async def test_acceptance_drains_old_audio_replays_prefix_and_cancels_cues(self):
@@ -204,7 +205,8 @@ class InterruptionIntegrationTests(unittest.IsolatedAsyncioTestCase):
             response(server_content=content(turn_complete=True)),
             response(data=b'new',server_content=content(output_transcription=NS(text='Nova resposta corrigida'),turn_complete=True)),
         ])
-        with self.assertRaises(asyncio.CancelledError):await assistant._receive_audio()
+        with patch('core.fish_audio.enabled',return_value=False),patch('memory.config_manager.load_api_keys',return_value={'speech_provider':'gemini'}):
+            with self.assertRaises(asyncio.CancelledError):await assistant._receive_audio()
         self.assertEqual(assistant.audio_in_queue.get_nowait(),b'new')
         assistant.ui.narration_text.assert_called_once()
         self.assertEqual(assistant.ui.narration_text.call_args.args[0],'Nova resposta corrigida')
@@ -231,11 +233,22 @@ class InterruptionIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_late_device_write_does_not_advance_cancelled_presentation(self):
         assistant=assistant_fixture();assistant.set_speaking=Mock()
+        assistant._turn_done_event.set();assistant._fish_voice=None
         assistant.audio_in_queue.get=AsyncMock(side_effect=[b'\0'*2400,asyncio.CancelledError()])
         stream=Mock();stream.latency=.1
+        def write(data):
+            assistant._response_epoch+=1
+            return False
+        stream.write.side_effect=write
         async def thread(function,*args):
-            if function==stream.write:assistant._response_epoch+=1
             return function(*args)
         with patch.object(main.sd,'RawOutputStream',return_value=stream),patch.object(main,'get_output_device',return_value=''),patch.object(main.audio_devices,'resolve',return_value=None),patch.object(main.asyncio,'to_thread',side_effect=thread):
             with self.assertRaises(asyncio.CancelledError):await assistant._play_audio()
-        assistant.ui.presentation_audio.assert_not_called();stream.abort.assert_called_once()
+        assistant.ui.presentation_audio.assert_not_called()
+        # Abort the stale write, restart for fresh audio, then abort on teardown.
+        self.assertEqual(stream.abort.call_count,2)
+        self.assertEqual(stream.start.call_count,2)
+        operations=[call[0] for call in stream.method_calls]
+        self.assertEqual(operations.count('write'),1)
+        self.assertLess(operations.index('abort'),operations.index('stop'))
+        stream.close.assert_called_once()

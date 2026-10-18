@@ -14,7 +14,10 @@ BASE = Path(__file__).resolve().parents[1]
 def visual_motion_reduced():
     root=Path(sys.executable).parent if getattr(sys,'frozen',False) else BASE
     try:
-        config=json.loads((root/'config/api_keys.json').read_text(encoding='utf-8'))
+        from memory.config_manager import CONFIG_FILE,prepare_storage
+        if root==Path(__file__).resolve().parents[1]:prepare_storage()
+        path=CONFIG_FILE if root==Path(__file__).resolve().parents[1] else root/'config/api_keys.json'
+        config=json.loads(path.read_text(encoding='utf-8'))
         return isinstance(config,dict) and bool(config.get('reduce_motion',False))
     except (OSError,ValueError):return False
 
@@ -88,7 +91,9 @@ def check_startup(progress, stop, install=True):
     except Exception:
         progress('Áudio', 'Não foi possível verificar os dispositivos', 'warning')
     try:
-        config = json.loads((BASE / 'config/api_keys.json').read_text(encoding='utf-8'))
+        from memory.config_manager import CONFIG_FILE,prepare_storage
+        prepare_storage()
+        config = json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
         configured = bool(config.get('gemini_api_key'))
     except (OSError, ValueError):
         configured = False

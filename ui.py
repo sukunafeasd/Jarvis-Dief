@@ -79,11 +79,13 @@ def _base_dir() -> Path:
 
 BASE_DIR   = _base_dir()
 CONFIG_DIR = BASE_DIR / "config"
-API_FILE   = CONFIG_DIR / "api_keys.json"
+from memory.config_manager import CONFIG_FILE as API_FILE
 
 
 def _read_full_config() -> dict:
     """Read api_keys.json config dict. Returns {} on any error."""
+    from memory.config_manager import CONFIG_FILE,load_api_keys
+    if API_FILE==CONFIG_FILE:return load_api_keys()
     try:
         return json.loads(API_FILE.read_text(encoding="utf-8"))
     except Exception:
@@ -760,6 +762,7 @@ class HudCanvas(QWidget):
                 if SpatialCoreView is not None:
                     self._spatial_core = SpatialCoreView(self)
                     self._spatial_core.ready.connect(self.window()._start_environment)
+                    self._spatial_core.neural_finished.connect(self.window()._finish_neural_memory)
                     self._spatial_core.unavailable.connect(self.window()._start_environment)
                     self._spatial_core.page().urlChanged.connect(self._core_gesture)
                     if hasattr(self.window(),'_render_presentation'):
@@ -1157,32 +1160,15 @@ class LogWidget(QTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setProperty('independentTheme',True)
         self.setReadOnly(True)
         # Cap scrollback so an hours-long session can't grow the document
         # without bound — keeps memory flat and every insert cheap. Oldest
         # lines drop off the top automatically.
         self.document().setMaximumBlockCount(600)
-        self.setFont(QFont("Courier New", 9))
-        self.setStyleSheet(f"""
-            QTextEdit {{
-                background: {C.PANEL};
-                color: {C.TEXT};
-                border: 1px solid {C.BORDER};
-                border-radius: 4px;
-                padding: 6px;
-                selection-background-color: {C.PRI_GHO};
-            }}
-            QScrollBar:vertical {{
-                background: {C.BG};
-                width: 8px;
-                border: none;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {C.BORDER_B};
-                border-radius: 4px;
-                min-height: 20px;
-            }}
-        """)
+        self.setFont(QFont("Consolas", 10))
+        from core.auxiliary_theme import SURFACE_STYLE
+        self.setStyleSheet(SURFACE_STYLE)
         self._queue: list[str] = []
         self._typing  = False
         self._text    = ""
@@ -1215,16 +1201,19 @@ class LogWidget(QTextEdit):
         elif tl.startswith("file:"):                             self._tag = "file"
         elif "err" in tl:                                        self._tag = "err"
         else:                                                    self._tag = "sys"
-        self._tmr.start(6)
+        self._tmr.start(16)
 
     def _step(self):
         if self._pos < len(self._text):
-            ch  = self._text[self._pos]
+            # Hidden history needs no animation; visible bursts must not fall behind speech.
+            remaining=len(self._text)-self._pos
+            count=remaining if not self.isVisible() else max(4,min(128,remaining//12+len(self._queue)*8))
+            ch=self._text[self._pos:self._pos+count]
             cur = self.textCursor()
             fmt = cur.charFormat()
             col = {
                 "you":  qcol(C.WHITE),
-                "ai":   qcol(C.PRI),
+                "ai":   qcol('#9bdfff'),
                 "err":  qcol(C.RED),
                 "file": qcol(C.GREEN),
                 # SYS lines are the bulk of the log. Amber fought the cyan HUD
@@ -1239,15 +1228,15 @@ class LogWidget(QTextEdit):
             cur.insertText(ch, fmt)
             self.setTextCursor(cur)
             self.ensureCursorVisible()
-            self._pos += 1
-        else:
+            self._pos += len(ch)
+        if self._pos >= len(self._text):
             self._tmr.stop()
             cur = self.textCursor()
             cur.movePosition(cur.MoveOperation.End)
             cur.insertText("\n")
             self.setTextCursor(cur)
             self.ensureCursorVisible()
-            QTimer.singleShot(20, self._next)
+            QTimer.singleShot(0, self._next)
 
 _FILE_ICONS = {
     "image":   ("🖼", "#00d4ff"), "video":   ("🎬", "#ff6b00"),
@@ -1476,6 +1465,8 @@ class _DropCanvas(QWidget):
 
 class _FuiOverlay(HudGlassFrame):
     def showEvent(self,event):
+        from core.auxiliary_theme import apply_auxiliary_theme
+        apply_auxiliary_theme(self)
         self.set_motion_reduced(_read_full_config().get('reduce_motion',False))
         super().showEvent(event)
 
@@ -1643,27 +1634,15 @@ class SetupOverlay(_FuiOverlay):
         """)
         init_btn.clicked.connect(self._submit)
         layout.addWidget(init_btn)
+        self.save_status=QLabel();self.save_status.setWordWrap(True)
+        self.save_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.save_status.setStyleSheet('color:#ffaaaa;background:transparent;')
+        self.save_status.hide();layout.addWidget(self.save_status)
 
     def _sel(self, key: str):
         self._sel_os = key
-        pal = {key: ('#69dfec', '#0c2430') for key in self._os_btns}
-        for k, btn in self._os_btns.items():
-            if k == key:
-                fg, bg = pal[k]
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {fg}; color: {bg};
-                        border: none; border-radius: 3px; font-weight: bold;
-                    }}
-                """)
-            else:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: #0b1a22; color: #a7bdc8;
-                        border: 1px solid #315765; border-radius: 3px;
-                    }}
-                    QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
-                """)
+        for name,button in self._os_btns.items():
+            button.setCheckable(True);button.setChecked(name==key);button.setStyleSheet('')
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -1929,21 +1908,8 @@ class CustomizeOverlay(_FuiOverlay):
         self._refresh_voice_btns()
 
     def _refresh_voice_btns(self):
-        """Highlight the selected voice pill; dim the rest."""
-        for name, b in self._voice_btns.items():
-            on = (name == self._sel_voice)
-            b.setChecked(on)
-            if on:
-                b.setStyleSheet(f"""
-                    QPushButton {{ background: {C.PRI_GHO}; color: {C.PRI};
-                        border: 1px solid {C.PRI}; border-radius: 3px; }}
-                """)
-            else:
-                b.setStyleSheet(f"""
-                    QPushButton {{ background: transparent; color: {C.TEXT_MED};
-                        border: 1px solid {C.BORDER}; border-radius: 3px; }}
-                    QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
-                """)
+        for name,button in self._voice_btns.items():
+            button.setChecked(name==self._sel_voice);button.setStyleSheet('')
 
     # ── colour flow ──────────────────────────────────────────────────────────
     def _set_color(self, hx: str, update_wheel: bool = True, preview: bool = True):
@@ -2075,24 +2041,8 @@ class PluginManagerOverlay(_FuiOverlay):
         return row
 
     def _style_toggle(self, btn: QPushButton, enabled: bool):
-        if enabled:
-            btn.setText('SIM')
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: #001a08; color: {C.GREEN};
-                    border: 1px solid {C.GREEN_D}; border-radius: 3px;
-                }}
-                QPushButton:hover {{ background: #002010; }}
-            """)
-        else:
-            btn.setText('NÃO')
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; color: {C.TEXT_DIM};
-                    border: 1px solid {C.BORDER}; border-radius: 3px;
-                }}
-                QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
-            """)
+        btn.setText('SIM' if enabled else 'NÃO')
+        btn.setCheckable(True);btn.setChecked(enabled);btn.setStyleSheet('')
 
     def _toggle(self, name: str, btn: QPushButton):
         from memory.config_manager import get_plugin_enabled, save_plugin_enabled
@@ -2436,9 +2386,9 @@ class MemoryOverlay(_HudOverlay):
 
         rows = all_entries_for_ui()
 
-        cap = QLabel(f"{len(rows)} stored facts — newest first. "
-                     f"Nothing here is sent anywhere; it lives in "
-                     f"memory/long_term.json on this machine.")
+        cap = QLabel(f"{len(rows)} fatos guardados, dos mais recentes aos antigos. "
+                     "Armazenados neste computador, no perfil local. Trechos relevantes "
+                     "podem ser enviados à API configurada como contexto da conversa.")
         cap.setWordWrap(True)
         cap.setFont(QFont("Courier New", 7))
         cap.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
@@ -2650,16 +2600,14 @@ class PluginSettingsOverlay(_FuiOverlay):
         root.setContentsMargins(22, 16, 22, 16)
         root.setSpacing(8)
 
-        root.addWidget(self._lbl('⚙  CONFIG. PLUGINS', 12, True))
+        root.addWidget(self._lbl('Configuração da conexão', 12, True))
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
         root.addWidget(sep)
 
         if not self._sections:
             root.addWidget(self._lbl(
-                "No configurable plugins are installed.\nDrop a plugin that needs "
-                "settings (like the 3D-printer suite) into the plugins folder and "
-                "it will show up here.", 9, color=C.TEXT_DIM))
+                'Esta ferramenta não possui campos de configuração.', 9, color=C.TEXT_DIM))
         else:
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
@@ -2679,7 +2627,7 @@ class PluginSettingsOverlay(_FuiOverlay):
         # ── bottom buttons ───────────────────────────────────────────────────
         btn_row = QHBoxLayout(); btn_row.setSpacing(8)
         if self._sections:
-            save_btn = QPushButton('▸  SALVAR')
+            save_btn = QPushButton('Salvar configuração')
             save_btn.setFixedHeight(34)
             save_btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
             save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2691,7 +2639,7 @@ class PluginSettingsOverlay(_FuiOverlay):
             save_btn.clicked.connect(self._save_all)
             btn_row.addWidget(save_btn)
 
-        close_btn = QPushButton('FECHAR')
+        close_btn = QPushButton('Voltar')
         close_btn.setFixedHeight(34)
         close_btn.setFont(QFont("Courier New", 9))
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2732,7 +2680,7 @@ class PluginSettingsOverlay(_FuiOverlay):
             stored  = values.get(key, default)
             if field.get('readonly'):stored=default
 
-            form.addWidget(self._lbl(label.upper(), 8, color=C.TEXT_DIM))
+            form.addWidget(self._lbl(label, 9, color=C.TEXT_DIM))
 
             if ftype == "choice":
                 w = QComboBox()
@@ -2762,7 +2710,7 @@ class PluginSettingsOverlay(_FuiOverlay):
                 w.setStyleSheet(self._fs)
                 if field.get("placeholder"):
                     w.setPlaceholderText(str(field["placeholder"]))
-                if ftype == "password":
+                if ftype in ("password","secret"):
                     w.setEchoMode(QLineEdit.EchoMode.Password)
                 w.setReadOnly(bool(field.get('readonly')))
 
@@ -2805,14 +2753,7 @@ class PluginSettingsOverlay(_FuiOverlay):
         form.addWidget(line)
 
     def _style_toggle(self, btn: QPushButton):
-        on = btn.isChecked()
-        btn.setText('SIM' if on else 'NÃO')
-        if on:
-            btn.setStyleSheet(f"QPushButton {{ background: {C.PRI_GHO}; color: {C.PRI}; "
-                              f"border: 1px solid {C.PRI}; border-radius: 3px; }}")
-        else:
-            btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {C.TEXT_MED}; "
-                              f"border: 1px solid {C.BORDER}; border-radius: 3px; }}")
+        btn.setText('SIM' if btn.isChecked() else 'NÃO');btn.setStyleSheet('')
 
     # ── data ──────────────────────────────────────────────────────────────────
     def _gather(self, ns: str) -> dict:
@@ -2832,25 +2773,50 @@ class PluginSettingsOverlay(_FuiOverlay):
     def _save_ns(self, ns: str):
         from memory.config_manager import save_plugin_config
         values=self._gather(ns)
-        if ns in ('home_automation','notion_service') and values.get('access_token'):
+        if ns in ('home_automation','notion_service','github_mcp','context7','deep_research','fish_audio') and values.get('access_token'):
             from core import integration_tokens
-            integration_tokens.write('notion_candidate' if ns=='notion_service' else ns,{'token':values['access_token']})
+            from core.local_data import LOCK,atomic_write
+            from memory import config_manager
+            token=values['access_token']
             values['access_token']=''
+            # Keep the previous connection usable if either durable write fails.
+            with LOCK,integration_tokens.LOCK:
+                config_manager.prepare_storage()
+                path=config_manager.CONFIG_FILE
+                previous=path.read_bytes() if path.exists() else None
+                save_plugin_config(ns,values)
+                try:
+                    integration_tokens.write('notion_candidate' if ns=='notion_service' else ns,{'token':token})
+                except Exception:
+                    if previous is None:path.unlink(missing_ok=True)
+                    else:atomic_write(path,previous)
+                    raise
             self._widgets[(ns,'access_token')].clear()
-        save_plugin_config(ns, values)
+            if ns in ('github_mcp','context7','deep_research'):
+                from core.extension_suite import reset
+                reset(ns)
+        else:save_plugin_config(ns, values)
+        if ns=='fish_audio':
+            owner=self.parentWidget()
+            while owner is not None and not hasattr(owner,'on_voice_change'):owner=owner.parentWidget()
+            if owner is not None and owner.on_voice_change:owner.on_voice_change()
 
     def _save_all(self):
         for sec in self._sections:
             ns = sec.get("namespace") or sec.get("plugin")
             if ns:
-                self._save_ns(ns)
+                try:self._save_ns(ns)
+                except Exception as error:
+                    self._show_settings_error(ns,error)
+                    continue
                 lbl = self._status_labels.get(ns)
                 if lbl:
                     lbl.setText('Salvo ✓')
                     lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
 
     def _run_action(self, ns: str):
-        if ns in self._running_actions:return
+        if ns in self._running_actions:
+            self._status_labels[ns].setText('Esta conexão já está em andamento. Aguarde a autorização ou o resultado.');return
         sec = next((s for s in self._sections
                     if (s.get("namespace") or s.get("plugin")) == ns), None)
         if not sec:
@@ -2858,7 +2824,10 @@ class PluginSettingsOverlay(_FuiOverlay):
         run_fn = (sec.get("action") or {}).get("run")
         if not callable(run_fn):
             return
-        self._save_ns(ns)                 # persist what the user typed before testing
+        try:self._save_ns(ns)
+        except Exception as error:
+            self._show_settings_error(ns,error)
+            return
         self._running_actions.add(ns)
         if ns in self._action_buttons:self._action_buttons[ns].setEnabled(False)
         values = self._gather(ns)
@@ -2882,10 +2851,20 @@ class PluginSettingsOverlay(_FuiOverlay):
                 elif ns in ('google_drive','google_calendar','gmail_compose'):
                     from core.google_services import error_details
                     msg=error_details(e)['message']
-                else:msg=str(e)
-            self._test_done.emit(ns, ok, msg)
+                else:
+                    from core.connection_errors import describe
+                    msg=describe(e)
+            try:self._test_done.emit(ns, ok, msg)
+            except RuntimeError:pass
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _show_settings_error(self,ns,error):
+        from core.connection_errors import describe
+        label=self._status_labels.get(ns)
+        if label:
+            label.setText(describe(error));label.setStyleSheet('color:#ffaaaa;background:transparent;')
+        if ns in self._action_buttons:self._action_buttons[ns].setEnabled(ns not in self._running_actions)
 
     def _on_test_done(self, ns: str, ok: bool, msg: str):
         self._running_actions.discard(ns)
@@ -3126,13 +3105,17 @@ class RemoteKeyOverlay(_FuiOverlay):
 
 
 class MainWindow(QMainWindow):
+    _neural_sig = pyqtSignal(object)
     _operation_sig = pyqtSignal(str, str)
     _environment_media_sig = pyqtSignal(dict)
+    _ultron_sig = pyqtSignal(object)
+    _forge_sig = pyqtSignal(object)
     _interface_sig = pyqtSignal(object)
     _log_sig        = pyqtSignal(str)
     _state_sig      = pyqtSignal(str)
     _content_sig    = pyqtSignal(str, str)   # (title, text) — thread-safe content display
     _manifestation_sig = pyqtSignal(object)
+    _live_pin_sig = pyqtSignal(object)
     _telemetry_sig = pyqtSignal(object, object)
     _narration_sig = pyqtSignal(object)
     _connection_sig = pyqtSignal(bool, str)
@@ -3172,6 +3155,15 @@ class MainWindow(QMainWindow):
         self._attachments = {}
         self._pending_image_pin = False
         self._space_view = None
+        self._forge_controller=None
+        self._spectro_controller=None
+        self._spectro_color=lambda:C.PRI
+        QTimer.singleShot(0,self._start_screen_observation)
+        self._forge_runtime=None
+        self.on_forge_command=None
+        self.on_forge_snapshot=None
+        self.on_forge_scene_failure=None
+        self._forge_sig.connect(self._apply_forge_request)
         self._environment = EnvironmentDirector()
         self._interface_sig.connect(self._apply_interface_request)
 
@@ -3247,10 +3239,10 @@ class MainWindow(QMainWindow):
         self._quiz_panel = self._build_quiz_panel()
 
         # Live camera container — replaces HUD when camera stream is active
-        _cam_cont = QWidget()
+        _cam_cont = _FuiOverlay()
         _cam_cont.setStyleSheet("background: #000308;")
         _cam_v = QVBoxLayout(_cam_cont)
-        _cam_v.setContentsMargins(0, 0, 0, 0)
+        _cam_v.setContentsMargins(12, 12, 12, 12)
         _cam_v.setSpacing(0)
         _cam_hdr = QHBoxLayout()
         _cam_hdr.setContentsMargins(8, 5, 8, 5)
@@ -3292,10 +3284,10 @@ class MainWindow(QMainWindow):
         # called from plugin threads, and reading a widget's state from one is
         # not something to rely on; an attribute is.
         self._video_on = False
-        self._video_cont = QWidget()
+        self._video_cont = _FuiOverlay()
         self._video_cont.setStyleSheet(f"background: {C.BG};")
         _vid_v = QVBoxLayout(self._video_cont)
-        _vid_v.setContentsMargins(8, 6, 8, 8)
+        _vid_v.setContentsMargins(14, 14, 14, 14)
         _vid_v.setSpacing(4)
 
         _vid_hdr = QHBoxLayout()
@@ -3511,16 +3503,38 @@ class MainWindow(QMainWindow):
         self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content)
         self._manifestation_sig.connect(self._show_manifestation)
+        self._neural_sig.connect(self._update_neural_memory)
         self._narration_sig.connect(self._narrate_presentation)
         from core.presentation_clock import PresentationClock
         self._presentation_clock=PresentationClock()
+        self._ultron_clock=PresentationClock()
+        self._narration_elapsed=0.
+        self._ultron_payload=None
+        self._ultron_polling=False
+        self._ultron_announced=None
+        self.on_ultron_ready=None
+        self.on_ultron_alert=None
+        self._ultron_alerted_at=0
+        self._ultron_sig.connect(self._show_ultron)
+        self._ultron_timer=QTimer(self)
+        self._ultron_timer.setInterval(2000)
+        self._ultron_timer.timeout.connect(self._poll_ultron)
         self._presentation_audio_sig.connect(self._advance_presentation)
         self._presentation_cancel_sig.connect(self._cancel_presentation)
         self._presentation_reset_sig.connect(self._presentation_clock.reset)
+        self._presentation_reset_sig.connect(self._ultron_clock.reset)
+        self._presentation_reset_sig.connect(self._reset_narration_timeline)
         self._connection_sig.connect(self._connection_changed)
         self._settle_timer = QTimer(self)
         self._settle_timer.setSingleShot(True)
         self._settle_timer.timeout.connect(self._settle_presentation)
+        from core.live_pins import LivePins
+        self._live_pins=LivePins(self._live_pin_sig.emit)
+        self._live_pin_sig.connect(self._apply_live_pin)
+        self._live_pin_timer=QTimer(self)
+        self._live_pin_timer.setInterval(1000)
+        self._live_pin_timer.timeout.connect(self._tick_live_pins)
+        if os.environ.get('QT_QPA_PLATFORM')!='offscreen':self._live_pin_timer.start()
         self._floating_controls.raise_()
         self._reconfig_sig.connect(self._show_setup)
         self._camera_sig.connect(self._show_camera_frame)
@@ -3554,6 +3568,10 @@ class MainWindow(QMainWindow):
 
         sc_mute = QShortcut(QKeySequence("F4"), self)
         sc_mute.activated.connect(self._toggle_mute)
+        self._fullscreen_shortcut=QShortcut(QKeySequence('F11'),self)
+        self._fullscreen_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._fullscreen_shortcut.setAutoRepeat(False)
+        self._fullscreen_shortcut.activated.connect(self._fullscreen_key)
         from core.ui_sounds import SoundDirector
         self._ui_sounds=SoundDirector(self)
         self._environment_media_sig.connect(self._ui_sounds.media)
@@ -3569,9 +3587,11 @@ class MainWindow(QMainWindow):
         self._refresh_lock=None
         self._pins_restored=False
         self._opening_veil=None
+        self._scene_layout_ready=False
         if os.environ.get('QT_QPA_PLATFORM')!='offscreen':
             from core.opening_veil import OpeningVeil
             self._opening_veil=OpeningVeil(self._scene_stage)
+            self._opening_veil.hub_visible=self._ready
             self._opening_veil.setGeometry(self._scene_stage.rect());self._opening_veil.show();self._opening_veil.raise_()
         QApplication.instance().installEventFilter(self)
         sc_intr = QShortcut(QKeySequence("Escape"), self)
@@ -3594,6 +3614,7 @@ class MainWindow(QMainWindow):
         pins=[]
         for key,preview in self._pin_previews.items():
             pin={'key':key,'data':copy.deepcopy(preview['data']),'slot':preview.get('slot')}
+            if preview.get('placement'):pin['placement']=dict(preview['placement'])
             if 'asset' in preview:pin['asset']=preview['asset']
             pins.append(pin)
         merged={pin['key']:pin for pin in saved}
@@ -3616,6 +3637,10 @@ class MainWindow(QMainWindow):
 
     def _restore_saved_pins(self):
         if self._pins_restored:return
+        forge=getattr(self,'_forge_controller',None)
+        ultron=getattr(self,'_ultron_payload',None)
+        if ((forge and forge.active) or isinstance(ultron,dict) and ultron.get('state',{}).get('phase','idle')!='idle'
+                or getattr(self,'_closed_for_shutdown',False)):return
         self._restoring_pins=True
         complete=True
         try:
@@ -3629,10 +3654,12 @@ class MainWindow(QMainWindow):
                         self._attachments[identifier]={'path':str(path),'image':True,'name':data['title']}
                         self._pin_image(identifier)
                     else:
-                        data={**data,'restored_snapshot':True,'narrationDriven':False}
+                        data={**data,'restored_snapshot':True,'narrationDriven':False,
+                              'live':{**data.get('live',{}),'stale':True,'message':'Previa salva; aguardando consulta atual.'}}
                         data['source']='Previa salva · atualizacao pendente'
                         self._pin_data(data)
                     if pin.get('slot') is not None:self._pin_previews[key]['slot']=pin['slot']
+                    if pin.get('placement'):self._pin_previews[key]['placement']=dict(pin['placement'])
                 except Exception:
                     complete=False
                     self._log.append_log('SYS: Uma previa salva nao pode ser restaurada; cache preservado.')
@@ -3646,6 +3673,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(2000,self._restore_saved_pins)
 
     def _ensure_space(self):
+        self._layout_scene()
         if self._space_view is not None or hasattr(self,'_space_fallback'):
             return
         self._space_fallback = QLabel(self._scene_stage)
@@ -3659,6 +3687,7 @@ class MainWindow(QMainWindow):
         if SpatialCoreView and os.environ.get('QT_QPA_PLATFORM')!='offscreen':
             self._space_view = SpatialCoreView(self._scene_stage,'space.html')
             self._space_view.ready.connect(self._start_environment)
+            self._space_view.ultron_unavailable.connect(self._ultron_visual_failed)
             self._space_view.unavailable.connect(self._start_environment)
             self._space_view.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             self._space_view.setGeometry(self._scene_stage.rect());self._space_view.show();self._space_view.lower()
@@ -3669,17 +3698,33 @@ class MainWindow(QMainWindow):
     def _start_environment(self, loaded=True):
         if not loaded:
             return
+        if not self.isVisible() or not getattr(self,'_scene_layout_ready',False):return
+        if self._overlay is not None and not self._ready:return
+        if not hasattr(self,'_space_fallback'):return
+        if ((self._space_view and self._space_view.failed) or
+                (self.hud.hud_style=='core' and self.hud._spatial_core and self.hud._spatial_core.failed)):
+            if self._opening_veil:self._opening_veil.fail()
+            return
         if self._space_view and not self._space_view.failed and not self._space_view._ready:return
         core=self.hud._spatial_core
         if self.hud.hud_style=='core':
+            if os.environ.get('QT_QPA_PLATFORM')!='offscreen' and (SpatialCoreView is None or core is None and self.hud._core_attempted):
+                if self._opening_veil:self._opening_veil.fail()
+                return
             waiting_core=core is None and SpatialCoreView is not None and os.environ.get('QT_QPA_PLATFORM')!='offscreen' and not self.hud._core_attempted
             if waiting_core or core is not None and not core.failed and not core._ready:return
         first=not self._environment.started
-        self._environment.start(self.hud.motion_reduced)
+        veil=self._opening_veil
+        if first and veil:
+            if not veil.released:
+                veil.fade.finished.connect(self._start_environment)
+                veil.release()
+                return
+            if veil.isVisible():return
+        self._environment.start(self.hud.motion_reduced,delay=400)
         if first:
             self._ui_sounds.play('startup')
             QTimer.singleShot(4700,self._restore_saved_pins)
-            if self._opening_veil:QTimer.singleShot(120,self._opening_veil.release)
         self._ui_sounds.scene(visible=self.isVisible() and not self.isMinimized())
         phase={'INITIALISING':'booting','THINKING':'thinking','PROCESSING':'executing'}.get(self.hud.state,
                     'speaking' if self.hud.speaking else 'idle')
@@ -3695,6 +3740,10 @@ class MainWindow(QMainWindow):
         if level is None:level=self.hud._amp_disp
         model = (self._presentation or {}).get('model', {}) if self._content_panel.isVisible() else {}
         settings = bool(getattr(self, '_settings_hub', None) and self._settings_hub.isVisible())
+        forge=getattr(self,'_forge_controller',None)
+        ultron=(getattr(self,'_ultron_payload',None) or {}).get('state',{}).get('phase','idle')!='idle'
+        if settings or self._resting or ultron or (forge and forge.active):
+            self._cancel_neural_memory()
         payload = self._environment.payload(phase=phase, level=level, domain=model.get('kind'),
             reading=bool(model.get('reading')), resting=self._resting, reduced=self.hud.motion_reduced,
             settings=settings, visible=self.isVisible() and not self.isMinimized() and not settings)
@@ -3715,6 +3764,110 @@ class MainWindow(QMainWindow):
             self._space_view.sync(payload)
         if self.hud._spatial_core and not self.hud._spatial_core.failed:
             self.hud._spatial_core.sync_environment(payload)
+
+    def _ultron_visual_failed(self):
+        self._ultron_render_failed=True
+        forge=getattr(self,'_forge_controller',None)
+        if not (forge and forge.active):self._center_split.show()
+        self._log.append_log('SYS: Visual ULTRON indisponivel. Diagnostico e voz continuam no Jarvis.')
+
+    def _show_ultron(self,payload):
+        if getattr(self,'_closed_for_shutdown',False):return
+        token=payload.get('poll_token')
+        if token is not None:
+            if token is not self._ultron_polling:return
+            self._ultron_polling=False
+        if payload.get('poll_error'):return
+        state=payload.get('state',{})
+        previous=(self._ultron_payload or {}).get('state',{})
+        forge=getattr(self,'_forge_controller',None)
+        generation=getattr(forge,'generation',0)
+        if forge and (forge.active or payload.get('forge_generation',generation)!=generation):
+            self._ultron_timer.stop();self._ultron_clock.cancel()
+            self._ultron_payload=None
+            return
+        # Poll identity belongs to Qt, never to the JSON/WebEngine scene.
+        payload={key:value for key,value in payload.items() if key not in ('poll_token','forge_generation')}
+        serial=state.get('snapshot_serial',0)
+        result=payload.get('result') or {}
+        if result.get('accepted') is False:return
+        if serial and serial<=getattr(self,'_ultron_snapshot_serial',0):
+            # A later poll may reach Qt before the command's presentation signal.
+            # Keep its newer state, but admit the result only for the same turn.
+            if (not result or state.get('last_user_turn') is None
+                    or state.get('last_user_turn')!=previous.get('last_user_turn')):return
+            state=previous
+            payload={**payload,'state':state}
+        else:self._ultron_snapshot_serial=serial
+        self._ultron_payload=payload
+        active=state.get('phase','idle')!='idle'
+        entering=active and previous.get('phase','idle')=='idle'
+        if entering:
+            self._settle_timer.stop()
+            self._presentation_clock.cancel()
+            if self._presentation:
+                self._presentation.pop('dismissal',None)
+                self._presentation.update(narration_active=False,paused=True,pending_beats=[])
+            self._terminal.hide()
+            scene=getattr(self,'_visual_scene',None)
+            if scene:
+                self._ultron_layer_visible=scene.layer.isVisible()
+                scene.clear_all(preserve_pinned=True);scene.cancel();scene.layer.hide()
+        elif not active and previous.get('phase','idle')!='idle':
+            scene=getattr(self,'_visual_scene',None)
+            if scene:scene.layer.setVisible(getattr(self,'_ultron_layer_visible',False))
+            if not getattr(self,'_pins_restored',True):QTimer.singleShot(0,self._restore_saved_pins)
+        visual=bool(self._space_view and not self._space_view.failed and not getattr(self,'_ultron_render_failed',False))
+        self._center_split.setVisible((not active or not visual) and (self._overlay is None or self._ready))
+        for preview in self._pin_previews.values():preview['widget'].setVisible(not active)
+        if active:
+            self._content_panel.hide();self._execution.hide();self._ultron_timer.start()
+        else:self._ultron_timer.stop()
+        if result:
+            self._ultron_silenced=result.get('mode')=='cancelled'
+            if not self._ultron_silenced:
+                self._ultron_clock.replace_scene()
+                self._ultron_clock.elapsed=getattr(self,'_narration_elapsed',0.)
+                self._ultron_clock.next_cue=self._ultron_clock.elapsed
+        if self._space_view and not self._space_view.failed:self._space_view.sync_ultron(payload)
+        if not active or getattr(self,'_ultron_silenced',False):
+            self._ultron_clock.cancel()
+            if self._space_view:self._space_view.advance_ultron({'cancelled':True,'cues':[]})
+        operations=state.get('operations',[])
+        waiting=state.get('scan',{}).get('running') or state.get('confirmation_pending') or any(op.get('state') in ('pending','running') for op in operations)
+        if not waiting and self._environment.operation_name=='ultron_protocol':
+            self._environment.operation_event('completed','ultron_protocol');self._sync_environment()
+        completed=state.get('scan',{}).get('finished_at')
+        if result.get('mode')=='diagnostic' and completed and not state.get('scan',{}).get('running'):
+            self._ultron_announced=completed
+        available=(not result and not waiting and not getattr(self,'_ultron_silenced',False)
+                   and not self.hud.speaking and self.hud.state not in ('THINKING','PROCESSING'))
+        if active and completed and completed!=self._ultron_announced and available and self.on_ultron_ready:
+            self._ultron_announced=completed;self.on_ultron_ready(state)
+            available=False
+        if active and available and self.on_ultron_alert and time.monotonic()-self._ultron_alerted_at>=60:
+            from core.ultron_presentation import monitor_alerts
+            alerts=monitor_alerts(state)
+            if alerts and self.on_ultron_alert(alerts):self._ultron_alerted_at=time.monotonic()
+        if previous.get('phase')!=state.get('phase'):self._layout_scene(True)
+
+    def _poll_ultron(self):
+        runtime=getattr(self,'_ultron_runtime',None)
+        if not runtime or self._ultron_polling or getattr(self,'_closed_for_shutdown',False):return
+        forge=getattr(self,'_forge_controller',None)
+        if forge and forge.active:
+            self._ultron_timer.stop();self._ultron_clock.cancel();self._ultron_payload=None
+            return
+        token=object()
+        self._ultron_polling=token
+        generation=getattr(forge,'generation',0)
+        def poll():
+            try:
+                from core.ultron_presentation import projection
+                payload={'state':projection(runtime.snapshot()),'result':None}
+            except Exception:payload={'poll_error':True}
+            self._ultron_sig.emit({**payload,'poll_token':token,'forge_generation':generation})
+        threading.Thread(target=poll,name='UltronSnapshot',daemon=True).start()
 
     def _open_terminal(self):
         self._content_panel.hide()
@@ -3778,14 +3931,14 @@ class MainWindow(QMainWindow):
         kind='photo:'+identifier
         if kind in self._pin_previews:
             return
-        if kind not in self._pin_capacity() and len(self._pin_capacity())>=4:
-            self._terminal.status.setText('Quatro prévias já estão fixadas. Remova uma antes de fixar a foto.')
-            raise ValueError('Limite de quatro prévias fixadas.')
+        if kind not in self._pin_capacity() and len(self._pin_capacity())>=6:
+            self._terminal.status.setText('Seis previas ja estao fixadas. Remova uma antes de fixar a foto.')
+            raise ValueError('Limite de seis previas fixadas.')
         pixmap=QPixmap.fromImage(image_preview(attachment['path']))
-        from core.hud_glass import HudGlassFrame
-        frame=HudGlassFrame(self._scene_stage);frame.setObjectName('PhotoPin')
+        from core.hud_glass import PinnedPreviewFrame
+        frame=PinnedPreviewFrame(self._scene_stage);frame.setObjectName('PhotoPin');frame.set_semantic({'kind':'photo'})
         frame.set_motion_reduced(_read_full_config().get('reduce_motion',False))
-        frame.setStyleSheet('QFrame#PhotoPin{background:rgba(4,17,24,238);border:1px solid #3d9bad;border-top-color:#ff5862;border-bottom-color:#ff5862;border-radius:6px;} QLabel{background:transparent;border:0;color:#edfaff;} QPushButton{background:transparent;border:0;color:#cfebef;}')
+        frame.setStyleSheet('QFrame#PhotoPin{background:transparent;border:0;} QLabel{background:transparent;border:0;color:#f2f7ff;}')
         layout=QVBoxLayout(frame);layout.setContentsMargins(7,6,7,7);layout.setSpacing(4)
         row=QHBoxLayout();restore=QLabel(attachment['name']);row.addWidget(restore,1);layout.addLayout(row)
         label=QLabel();label.setAlignment(Qt.AlignmentFlag.AlignCenter);layout.addWidget(label,1)
@@ -3812,6 +3965,13 @@ class MainWindow(QMainWindow):
             self._terminal.status.setText(str(error))
 
     def _operation_event(self,name,state):
+        spectro=getattr(self,'_spectro_controller',None)
+        if spectro:spectro.record_event(name,state)
+        if isinstance(name,str) and name.split(':',1)[0]=='ultron_protocol':
+            self._environment.operation_event(state,name)
+            self._execution.hide()
+            self._sync_environment()
+            return
         if not isinstance(name,str) or not name:return
         if not self._environment.operation_event(state,name):return
         self._execution.record(name,state)
@@ -3839,9 +3999,11 @@ class MainWindow(QMainWindow):
     def _layout_workspace(self,avatar,target,active):
         if not hasattr(self,'_terminal'):return avatar,target
         w,h=self._scene_stage.width(),self._scene_stage.height()
+        refresh_view=getattr(self,'_daily_refresh_view',None)
+        if refresh_view:refresh_view.reposition()
         terminal=self._terminal.isVisible();execution=self._execution.isVisible()
         if not (terminal or execution): return avatar,target
-        bottom_pins=[item['widget'].geometry() for item in self._pin_previews.values() if item.get('slot',0)<2]
+        bottom_pins=[item['widget'].geometry() for item in self._pin_previews.values() if item['widget'].geometry().center().y()>h*.5]
         reserve=max((h-rect.top()+10 for rect in bottom_pins),default=0)
         available=max(210,h-120-reserve)
         panel_width=min(380,max(240,int(w*.29)))
@@ -3921,7 +4083,7 @@ class MainWindow(QMainWindow):
             cam_idx = 0
             try:
                 import json as _j
-                cfg = _j.loads((CONFIG_DIR / "api_keys.json").read_text())
+                cfg = _j.loads(API_FILE.read_text())
                 cam_idx = int(cfg.get("camera_index", 0))
             except Exception:
                 pass
@@ -4451,8 +4613,43 @@ class MainWindow(QMainWindow):
         if target is None:target=self
         if target.isFullScreen():
             target.showNormal()
+            rect=getattr(target,'_normal_scene_rect',target.normalGeometry())
+            screen=target.screen().availableGeometry()
+            if not rect.isValid() or rect.width()>=screen.width()*.95 and rect.height()>=screen.height()*.95:
+                rect=QRect(0,0,min(1200,int(screen.width()*.8)),min(800,int(screen.height()*.8)))
+                rect.moveCenter(screen.center())
+            target.setGeometry(rect)
         else:
+            target._normal_scene_rect=target.geometry()
             target.showFullScreen()
+
+    def _fullscreen_key(self,target=None):
+        now=time.monotonic()
+        if now-getattr(self,'_fullscreen_key_at',0)<.15:return
+        self._fullscreen_key_at=now
+        self._toggle_fullscreen(target)
+
+    def _apply_forge_request(self,packet):
+        if not isinstance(packet,dict):return
+        if packet.get('action')=='pin_artifact':
+            try:
+                from core.forge_artifacts import pin_artifact
+                pin_artifact(self,packet['data']);packet['result']={'ok':True}
+            except Exception as error:packet['result']={'ok':False,'error':str(error)}
+            if packet.get('done'):packet['done'].set()
+            return
+        if getattr(self,'_closed_for_shutdown',False):
+            packet['result']={'ok':False,'error':'Jarvis encerrando.'}
+            if packet.get('done'):packet['done'].set()
+            return
+        if self._forge_controller is None:
+            if packet.get('action')!='enter':
+                packet['result']={'ok':packet.get('action')=='exit','phase':'normal'}
+                if packet.get('done'):packet['done'].set()
+                return
+            from core.forge_controller import ForgeController
+            self._forge_controller=ForgeController(self)
+        self._forge_controller.request(packet)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -4480,11 +4677,21 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self,event):
         self._closed_for_shutdown=True
+        if getattr(self,'_spectro_controller',None):self._spectro_controller.close()
+        if getattr(self,'_live_pins',None):self._live_pins.close()
+        controller=getattr(self,'_forge_controller',None)
+        if controller:controller.close()
+        forge=getattr(self,'_forge_runtime',None)
+        if forge:threading.Thread(target=forge.close,name='ForgeShutdown',daemon=True).start()
+        runtime=getattr(self,'_ultron_runtime',None)
+        if runtime:threading.Thread(target=runtime.close,name='UltronShutdown',daemon=True).start()
+        from core.extension_suite import shutdown as shutdown_extensions
+        shutdown_extensions()
         app=QApplication.instance()
         if app:app.removeEventFilter(self)
         cursor=getattr(self,'_idle_cursor',None)
         if cursor:cursor.dispose()
-        if hasattr(self,'_ui_sounds'):self._ui_sounds.stop()
+        if hasattr(self,'_ui_sounds'):self._ui_sounds.close()
         for timer in self.findChildren(QTimer):timer.stop()
         if SpatialCoreView:
             for view in self.findChildren(SpatialCoreView):
@@ -4493,8 +4700,17 @@ class MainWindow(QMainWindow):
 
     def showEvent(self,event):
         super().showEvent(event)
+        QTimer.singleShot(0,self._prepare_initial_scene)
         if hasattr(self,'_ui_sounds') and self._environment.started:self._ui_sounds.scene(visible=not self.isMinimized())
         if getattr(self,'_space_view',None):self._space_view.sync({'visible':not self.isMinimized()})
+
+    def _prepare_initial_scene(self):
+        if getattr(self,'_closed_for_shutdown',False):return
+        self.centralWidget().layout().activate()
+        self._layout_scene()
+        self._position_overlays()
+        self._scene_layout_ready=True
+        self._start_environment()
 
     def eventFilter(self, watched, event):
         from PyQt6 import sip
@@ -4508,10 +4724,9 @@ class MainWindow(QMainWindow):
             if hasattr(self,'_ui_sounds'):self._ui_sounds.play('toggle' if watched.isCheckable() else 'click')
         elif owned and mouse and isinstance(watched,(QTabBar,QListWidget)):
             if hasattr(self,'_ui_sounds'):self._ui_sounds.play('navigation')
-        if isinstance(watched,QWidget) and (watched is self or self.isAncestorOf(watched)) and event.type() in (QEvent.Type.ShortcutOverride,QEvent.Type.KeyPress) and event.key()==Qt.Key.Key_F11:
+        if owned and event.type()==QEvent.Type.KeyPress and event.key()==Qt.Key.Key_F11:
             event.accept()
-            if event.type()==QEvent.Type.KeyPress and not event.isAutoRepeat():
-                self._toggle_fullscreen(watched.window())
+            if not event.isAutoRepeat():self._fullscreen_key(watched.window())
             return True
         if watched in (getattr(self,"_title_lbl",None),getattr(self,"_clock_lbl",None),getattr(self,"_date_lbl",None)):
             if event.type()==QEvent.Type.MouseButtonPress and event.button()==Qt.MouseButton.LeftButton:
@@ -4531,7 +4746,7 @@ class MainWindow(QMainWindow):
         if connected and not getattr(self,'_arrival_done',False):
             self._arrival_done = True
             self._ensure_content_renderer()
-            if not _read_full_config().get('reduce_motion',False):
+            if not _read_full_config().get('reduce_motion',False) and not self._environment.entrance:
                 rect = self._center_split.geometry()
                 initial = QRect(rect)
                 initial.setSize(QSize(int(rect.width()*.82),int(rect.height()*.82)))
@@ -4542,7 +4757,15 @@ class MainWindow(QMainWindow):
     def _layout_scene(self, animate=False, duration=420):
         if not hasattr(self,"_scene_stage"):
             return
+        animate=bool(animate and not self.hud.motion_reduced)
+        forge=getattr(self,'_forge_controller',None)
+        if forge and forge.active:
+            forge.layout();return
         w,h=self._scene_stage.width(),self._scene_stage.height()
+        veil=getattr(self,'_opening_veil',None)
+        if veil and (not veil.released or veil.isVisible()):
+            veil.setGeometry(self._scene_stage.rect())
+        self._pin_layout_reserved=False
         self._position_pin()
         for layer in (getattr(self,'_space_fallback',None),self._space_view):
             if layer: layer.setGeometry(self._scene_stage.rect());layer.lower()
@@ -4557,6 +4780,9 @@ class MainWindow(QMainWindow):
         avatar=QRect(0,0,w,h)
         if not active and self._environment.override == 'exploration':
             avatar=QRect(int(w*.38),0,int(w*.62),h)
+        elif not active and self._scene_position in ('left','right'):
+            width=int(w*.65)
+            avatar=QRect(0 if self._scene_position=='left' else w-width,0,width,h)
         target=QRect(int(w*.52),int(h*.1),int(w*.46),int(h*.87))
         if active:
             avatar=QRect(0,0,int(w*.57),h)
@@ -4590,21 +4816,38 @@ class MainWindow(QMainWindow):
         workspace=[panel.geometry() for panel in (self._terminal,self._execution) if panel.isVisible()]
         if active and (self._pin_previews or workspace):
             target=self._fit_around_pins(target,workspace)
+            if any(target.intersects(item['widget'].geometry()) for item in self._pin_previews.values()):
+                # Temporarily condense previews rather than covering them with a
+                # new answer. Saved user placements are restored when it closes.
+                self._pin_layout_reserved=True
+                self._position_pin()
+                target=QRect(int(w*.51),84,max(1,int(w*.47)-12),max(1,h-96))
+                target=self._fit_around_pins(target,workspace)
             if kind in ('news','status'):avatar=self._fit_around_pins(avatar,workspace)
             elif kind in ('gmail','whatsapp'):
                 avatar_top=target.bottom()+12
                 avatar=QRect(int(w*.08),avatar_top,int(w*.84),max(100,h-avatar_top))
-        for animation in self._scene_animations:
-            animation.stop(); animation.deleteLater()
+        previous_animations=list(self._scene_animations)
         self._scene_animations=[]
         for widget,rect in ((self._center_split,avatar),(self._content_panel,target)):
-            if animate and self.isVisible():
+            continuing=next((animation for animation in previous_animations
+                if animation.targetObject() is widget and animation.endValue()==rect
+                and animation.state()==QPropertyAnimation.State.Running),None)
+            if animate and self.isVisible() and continuing:
+                self._scene_animations.append(continuing);previous_animations.remove(continuing)
+                continue
+            for animation in list(previous_animations):
+                if animation.targetObject() is widget:
+                    animation.stop();animation.deleteLater();previous_animations.remove(animation)
+            if animate and self.isVisible() and widget.geometry()!=rect:
                 animation=QPropertyAnimation(widget,b"geometry",self)
                 animation.setDuration(duration); animation.setEasingCurve(QEasingCurve.Type.OutCubic)
                 animation.setStartValue(widget.geometry()); animation.setEndValue(rect)
                 animation.start(); self._scene_animations.append(animation)
             else:
                 widget.setGeometry(rect)
+        for animation in previous_animations:
+            animation.stop();animation.deleteLater()
         width=w
         for label,y,height in ((self._title_lbl,16,18),(self._clock_lbl,36,23),(self._date_lbl,60,15)):
             label.setGeometry(max(0,(width-220)//2),y,min(width,220),height)
@@ -4615,6 +4858,11 @@ class MainWindow(QMainWindow):
             accents={'weather':'#8bcfea','tasks':'#70dfb7','calendar':'#efcc87','gmail':'#ee8881','whatsapp':'#71e2b0','memory':'#bdafe9'}
             self._projection_trace.begin(self._center_split.geometry().center(),target.center(),accents.get(kind,'#9bd0e8'))
         self._floating_controls.raise_()
+
+        if veil and not veil.released:veil.raise_()
+        if getattr(self,'_overlay',None) is not None and not self._ready:
+            self._center_split.hide()
+            self._overlay.raise_()
 
         if getattr(self,'_visual_scene',None):
             self._visual_scene.reflow()
@@ -4683,6 +4931,11 @@ class MainWindow(QMainWindow):
     def _narrate_presentation(self,text):
         content=text.get('text') if isinstance(text,dict) else text
         if not isinstance(content,str) or not content.strip():return
+        neural_clock=getattr(self,'_neural_clock',None)
+        if neural_clock and getattr(self,'_neural_request',None):
+            neural_clock.enqueue(content,text.get('at') if isinstance(text,dict) else None,text.get('duration') if isinstance(text,dict) else None)
+        if self._ultron_payload and self._ultron_payload.get('state',{}).get('phase')!='idle':
+            self._ultron_clock.enqueue(content,text.get('at') if isinstance(text,dict) else None,text.get('duration') if isinstance(text,dict) else None)
         if getattr(self,'_visual_scene',None):self._visual_scene.enqueue(text)
         if self._presentation and self._presentation.get('narration_active') and not self._resting:
             if isinstance(text,dict):
@@ -4690,9 +4943,23 @@ class MainWindow(QMainWindow):
             else:
                 self._presentation_clock.enqueue(text)
 
+    def _reset_narration_timeline(self):
+        self._narration_elapsed=0.
+        clock=getattr(self,'_neural_clock',None)
+        if clock:clock.reset()
+
     def _advance_presentation(self,seconds):
         from core.presentation_clock import valid_time
         if not valid_time(seconds) or seconds==0:return
+        self._narration_elapsed=getattr(self,'_narration_elapsed',0.)+seconds
+        neural_clock=getattr(self,'_neural_clock',None)
+        if neural_clock and getattr(self,'_neural_request',None):
+            neural_beat=neural_clock.advance(seconds)
+            view=getattr(self.hud,'_spatial_core',None)
+            if view:
+                for cue in neural_beat.get('cues',[]):view.narrate_neural(cue)
+        ultron_beat=self._ultron_clock.advance(seconds)
+        if self._ultron_payload and self._ultron_payload.get('state',{}).get('phase')!='idle' and self._space_view:self._space_view.advance_ultron(ultron_beat)
         if getattr(self,'_visual_scene',None):self._visual_scene.advance(seconds)
         beat=self._presentation_clock.advance(seconds)
         if beat.get('cues'):
@@ -4706,6 +4973,9 @@ class MainWindow(QMainWindow):
                 self._presentation['pending_beats']=(self._presentation.get('pending_beats',[])+[beat])[-32:]
 
     def _cancel_presentation(self):
+        self._cancel_neural_memory()
+        self._ultron_clock.cancel()
+        if self._space_view:self._space_view.advance_ultron({'cancelled':True,'cues':[]})
         self._refresh_lock=None
         self._settle_timer.stop()
         if self._presentation:
@@ -4769,6 +5039,7 @@ class MainWindow(QMainWindow):
                 (cw.height() - oh) // 2,
                 ow, oh,
             )
+            self._overlay.raise_()
         if self._remote_overlay and self._remote_overlay.isVisible():
             ow, oh = RemoteKeyOverlay._OW, RemoteKeyOverlay._OH
             self._remote_overlay.setGeometry(
@@ -5107,7 +5378,7 @@ class MainWindow(QMainWindow):
         """
 
         self._BTN_PRI, self._BTN_DIM = _BTN_STYLE_PRI, _BTN_STYLE_DIM
-        w = QWidget(self.centralWidget())
+        w = _FuiOverlay(self.centralWidget())
         w.setObjectName("QuickDrawer")
         w.setStyleSheet(f"""
             QWidget#QuickDrawer {{
@@ -5197,7 +5468,7 @@ class MainWindow(QMainWindow):
 
     def _build_controls_drawer(self) -> QWidget:
         """The switches that get flicked every day, in their own panel."""
-        w = QWidget(self.centralWidget())
+        w = _FuiOverlay(self.centralWidget())
         w.setObjectName("QuickDrawer")
         w.setStyleSheet(self._quick_drawer.styleSheet())
         w.hide()
@@ -5450,6 +5721,10 @@ class MainWindow(QMainWindow):
 
     def _show_content(self, title: str, text: str, model_data=None):
         """Slot — runs on Qt main thread. Updates and shows the content panel."""
+        spectro=getattr(self,'_spectro_controller',None)
+        if spectro and spectro.active:
+            if spectro.ready:spectro.apply('note',{'text':str(title)+': '+str(text)[:180]})
+            return
         import time as _time
         previous_data=(self._presentation or {}).get('model',{})
         changed_context=any(previous_data.get(key)!=(model_data or {}).get(key) for key in ('kind','city','period','contact','reading'))
@@ -5483,9 +5758,71 @@ class MainWindow(QMainWindow):
         self._scene_position="auto"
         self._layout_scene(first_show)
 
+    def _cancel_neural_memory(self):
+        if getattr(self,'_neural_request',None) is None:return
+        self._neural_request=None
+        clock=getattr(self,'_neural_clock',None)
+        if clock:clock.cancel()
+        view=getattr(self.hud,'_spatial_core',None)
+        if view:view.cancel_neural()
+
+    def _finish_neural_memory(self,request_id):
+        if request_id!=getattr(self,'_neural_request',None):return
+        self._neural_request=None
+        clock=getattr(self,'_neural_clock',None)
+        if clock:clock.cancel()
+
+    def _update_neural_memory(self, payload):
+        if not isinstance(payload,dict):return
+        view=getattr(self.hud,'_spatial_core',None)
+        forge=getattr(self,'_forge_controller',None)
+        settings=getattr(self,'_settings_hub',None)
+        if self._resting or (forge and forge.active) or (settings and settings.isVisible()):return
+        if (getattr(self,'_ultron_payload',None) or {}).get('state',{}).get('phase','idle')!='idle':return
+        if payload.get('pending'):
+            self._neural_request=payload.get('requestId')
+            from core.presentation_clock import PresentationClock
+            self._neural_clock=PresentationClock()
+            self._neural_clock.elapsed=getattr(self,'_narration_elapsed',0.)
+            self._neural_clock.next_cue=self._neural_clock.elapsed
+            self.hud.news_content=None
+            if view:view.sync_news(None)
+            if self._presentation and not self._pinned:
+                self._presentation_history=(self._presentation_history+[self._presentation.copy()])[-8:]
+                self._presentation=None
+                self._presentation_clock.replace_scene()
+                self._settle_timer.stop()
+                self._content_panel.hide()
+                self._layout_scene(True)
+        elif payload.get('requestId')!=getattr(self,'_neural_request',None):return
+        if view and not view.failed:view.sync_neural(payload)
+        elif payload.get('active'):
+            items=payload.get('items',[])
+            text=json.dumps(items,ensure_ascii=False) if items else 'Qual assunto deseja consultar?' if payload.get('awaitingTopic') else 'Consulta sem lembrancas disponiveis para projetar.'
+            self._show_content('MEMORIA',text,{'kind':'memory','items':items})
+            self._finish_neural_memory(payload.get('requestId'))
+        if not payload.get('pending') and payload.get('active') is False:self._finish_neural_memory(payload.get('requestId'))
+
     def _show_manifestation(self, data):
+        spectro=getattr(self,'_spectro_controller',None)
+        if spectro and spectro.active and isinstance(data,dict):
+            if data.get('kind')=='status-end':return
+            if spectro.ready:
+                from core.spectro_summary import summary
+                spectro.apply('note',{'text':summary(data)})
+            return
+        if isinstance(data,dict) and data.get('kind')=='memory':
+            if getattr(self,'_neural_request',None):return
+            from core.neural_memory import retrieval_payload
+            identifier=uuid.uuid4().hex
+            self._update_neural_memory({'requestId':identifier,'pending':True})
+            self._update_neural_memory(retrieval_payload({'ok':True,'items':data.get('items',[]),'source':data.get('source')},identifier))
+            return
+        if isinstance(data,dict) and data.get('kind') not in ('status','status-end'):self._cancel_neural_memory()
         if isinstance(data,dict) and data.get('kind') == 'status-end':
             if getattr(self,'_refresh_lock',None)==data.get('id'):self._refresh_lock=None
+            refresh_view=getattr(self,'_daily_refresh_view',None)
+            if refresh_view:refresh_view.finish(data.get('id'),failed=bool(data.get('retain')))
             current = (self._presentation or {}).get('model',{})
             if data.get('retain') and current.get('kind')=='status' and current.get('id')==data.get('id'):
                 self._settle_timer.start(15000)
@@ -5493,13 +5830,32 @@ class MainWindow(QMainWindow):
             if data.get('id') is not None and current.get('kind') == 'status' and current.get('id') == data.get('id'):
                 self._content_panel.hide(); self._presentation=None; self._layout_scene(True)
             return
+        forge=getattr(self,'_forge_controller',None)
+        if forge and forge.active:return
         if not isinstance(data, dict) or data.get("kind") not in ("weather", "system", "tasks", "calendar", "news", "files", "data", "memory", "search", "status", "gmail", "whatsapp"):
             return
         lock=getattr(self,'_refresh_lock',None)
         if lock and data.get('id')!=lock and data.get('refreshOwner')!=lock:return
         if data.get('refreshTransaction') and data.get('id'):
-            if not lock:self._ui_sounds.play('refresh-start')
+            if not lock:
+                self._ui_sounds.play('refresh-start')
+                if self._presentation and not self._pinned:
+                    self._presentation_history=(self._presentation_history+[self._presentation.copy()])[-8:]
+                    self._presentation=None
+                    self._content_panel.hide()
+                    self._settle_timer.stop()
+                    self._presentation_clock.replace_scene()
+                    self._layout_scene(True)
+                scene=getattr(self,'_visual_scene',None)
+                if scene:scene.clear_all(preserve_pinned=True)
             self._refresh_lock=data['id']
+            if not getattr(self,'_daily_refresh_view',None):
+                from core.daily_refresh_view import DailyRefreshView
+                self._daily_refresh_view=DailyRefreshView(self._scene_stage)
+            self._daily_refresh_view.update_model(data)
+            return
+        if data.get('refreshOwner') and getattr(self,'_daily_refresh_view',None):
+            self._daily_refresh_view.finish(data['refreshOwner'])
         from core.presentation_model import normalize_model
         data=normalize_model(data)
         if not self._pending_image_pin:self._terminal.hide()
@@ -5507,7 +5863,12 @@ class MainWindow(QMainWindow):
         self.hud.semantic_cue('projection')
         if data.get('kind')!='status':self._ui_sounds.play('projection')
         if data['kind'] in self._pin_previews:
-            self._update_pin(data['kind'],data)
+            from core.live_pins import specification
+            previous_pin=self._pin_previews[data['kind']]['data']
+            current_spec=specification(data)
+            same_source=current_spec is not None and current_spec==specification(previous_pin)
+            if same_source:self._update_pin(data['kind'],data)
+        data={**data,'compact':False,'framed':False}
         previous=(self._presentation or {}).get('model',{})
         if data.get('kind') == 'status' and data.get('id') is not None and previous.get('kind')=='status' and previous.get('id') == data.get('id'):
             data['presentationId']=previous.get('presentationId')
@@ -5525,7 +5886,7 @@ class MainWindow(QMainWindow):
     def _spatial_navigation(self, url):
         fragment = url.fragment()
         if fragment.startswith('speech-focus-') and self._presentation:
-            if self._presentation.get('paused'):return
+            if self._presentation.get('paused') or self._presentation.get('completed'):return
             try:
                 index=int(fragment.split('-')[2])
                 parts=fragment.split('-',4)
@@ -5575,6 +5936,7 @@ class MainWindow(QMainWindow):
     def _sync_presentation_view(self, data):
         self._ensure_content_renderer()
         ready = self._content_spatial and not self._content_spatial.failed
+        self._content_display.setStyleSheet(f'QTextEdit {{ background:transparent; color:{C.WHITE}; border:0; padding:4px; }}')
         self._content_display.setVisible(not ready)
         for i in range(self._native_content_header.count()):
             widget = self._native_content_header.itemAt(i).widget()
@@ -5681,6 +6043,9 @@ class MainWindow(QMainWindow):
             self._pinned = True
 
     def _pin_data(self, data):
+        if isinstance(data,dict) and data.get('kind')=='forge_artifact':
+            from core.forge_artifacts import pin_artifact
+            return pin_artifact(self,data)
         self._ui_sounds.play('pin')
         from core.presentation_model import normalize_model
         data=normalize_model(data)
@@ -5688,21 +6053,26 @@ class MainWindow(QMainWindow):
         prior_keys=self._pin_capacity()
         previous=copy.deepcopy(self._pin_previews[kind]['data']) if kind in self._pin_previews else None
         if kind not in self._pin_previews:
-            if kind not in prior_keys and len(prior_keys)>=4:
-                raise ValueError('Já há quatro prévias fixadas. Desfixe uma antes de adicionar outra.')
+            if kind not in prior_keys and len(prior_keys)>=6:
+                raise ValueError('Ja ha seis previas fixadas. Desfixe uma antes de adicionar outra.')
             from core.hud_glass import PinnedPreviewFrame
             frame=PinnedPreviewFrame(self._scene_stage)
             frame.set_motion_reduced(_read_full_config().get('reduce_motion',False))
             frame.setObjectName('PinnedPreview')
-            accent={'weather':'#23d8f5','tasks':'#25e8b5','calendar':'#ffbe55','gmail':'#ff647f','whatsapp':'#39eea9','memory':'#c093ff','system':'#32d7f0','files':'#55c9ff','news':'#f37d92','search':'#35e0c4'}.get(kind,'#70d9f3')
+            from core.observatory_theme import ACCENTS
+            accent=ACCENTS.get(kind,'#8dcaff')
             frame.set_accent(accent)
-            frame.setStyleSheet(f'QFrame#PinnedPreview {{ background:transparent; border:0; border-radius:8px; }} QLabel {{ border:0; background:transparent; color:#edfaff; }} QPushButton {{ border:0; color:{accent}; background:transparent; padding:3px; }} QPushButton:hover {{ background:#1c2b34; }}')
+            frame.setStyleSheet(f'QFrame#PinnedPreview {{ background:transparent; border:0; border-radius:14px; }} QLabel {{ border:0; background:transparent; color:#edfaff; }} QPushButton {{ border:0; color:{accent}; background:transparent; padding:3px; }} QPushButton:hover {{ background:#1c2b34; }}')
             layout=QVBoxLayout(frame);layout.setContentsMargins(12,12,12,10);layout.setSpacing(3)
             header=QHBoxLayout()
+            from core.ui_assets import SERVICES,symbol_pixmap
+            mark=QLabel(frame);mark.setPixmap(symbol_pixmap(SERVICES.get(kind,('box',accent))[0],accent,18));mark.setFixedSize(22,22);header.addWidget(mark)
             restore=QLabel(data.get('title',kind),frame)
+            restore.setTextFormat(Qt.TextFormat.PlainText)
             restore.setFont(QFont('Segoe UI',10,QFont.Weight.DemiBold))
             header.addWidget(restore,1);layout.addLayout(header)
-            label=QLabel(frame);label.setWordWrap(True);layout.addWidget(label,1)
+            label=QLabel(frame);label.setTextFormat(Qt.TextFormat.PlainText);label.setWordWrap(True)
+            label.setMinimumSize(1,1);label.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored);layout.addWidget(label,1)
             view=None
             if SpatialCoreView and os.environ.get('QT_QPA_PLATFORM')!='offscreen':
                 view=SpatialCoreView(frame,'presentation.html');layout.addWidget(view,1)
@@ -5735,11 +6105,29 @@ class MainWindow(QMainWindow):
         if preview and preview['view'] is view and not view.failed:
             preview['label'].hide()
 
-    def _update_pin(self,kind,data,persist=True):
+    def _tick_live_pins(self):
+        if getattr(self,'_closed_for_shutdown',False) or not self._ready or self.isMinimized() or not self.isVisible():return
+        forge=getattr(self,'_forge_controller',None)
+        if (forge and forge.active) or not any(pin['widget'].isVisible() for pin in self._pin_previews.values()):return
+        self._live_pins.tick(self._pin_previews)
+
+    def _apply_live_pin(self,result):
+        if not self._live_pins.accept(result,self._pin_previews):return
+        key=result['key'];previous=self._pin_previews[key]['data']
+        if result['error']:
+            model={**previous,'live':{**previous.get('live',{}),'stale':True,'message':result['error']}}
+        else:
+            model={**result['model'],'refresh':previous.get('refresh',result['model'].get('refresh')),
+                   'live':{'updated_at':result['updated_at'],'stale':False}}
+        self._update_pin(key,model,persist=False,live=True)
+
+    def _update_pin(self,kind,data,persist=True,live=False):
         from core.presentation_model import normalize_model,shown_number,record_text
         data=normalize_model(data)
         preview=self._pin_previews[kind]
+        if not live:preview['live_token']=uuid.uuid4().hex
         preview['data']=copy.deepcopy(data)
+        if hasattr(preview['widget'],'set_semantic'):preview['widget'].set_semantic(data)
         preview['restore'].setText(data.get('title',kind)[:36])
         if kind=='weather':
             summary=f"{shown_number(data.get('temperature'))}° · {data.get('condition') or 'Indisponível'}\n{data.get('city','')} · Chuva {shown_number(data.get('rain'))}%"
@@ -5751,16 +6139,29 @@ class MainWindow(QMainWindow):
             if kind=='tasks':
                 summary=f"{shown_number(data.get('count'))} pendentes\n"+summary
         preview['label'].setText(summary[:500]);preview['widget'].setAccessibleName(data.get('title',kind)+' · '+summary[:500])
+        state=data.get('live') or {}
+        if state.get('stale'):
+            preview['label'].setText(summary[:400]+'\n'+state.get('message','Consulta desatualizada.'))
+            preview['restore'].setText(data.get('title',kind)[:22]+' · DESATUALIZADO')
+        preview['widget'].setToolTip(state.get('message','') if state.get('stale') else 'Ultima consulta: '+state['updated_at'] if state.get('updated_at') else '')
         view=preview['view']
         ready=view and not view.failed
         preview['label'].setVisible(not (ready and view._ready))
         if ready:
-            view.show();view.sync({**data,'compact':True,'framed':True,'narrationDriven':False,'color':C.PRI,
-                                  'motion':'reduced' if _read_full_config().get('reduce_motion',False) else 'full'})
+            payload={**data,'compact':True,'framed':True,'narrationDriven':False,'rebuild':not live,'color':preview['accent'],
+                     'motion':'reduced' if _read_full_config().get('reduce_motion',False) else 'full'}
+            visible_data={**payload,'live':{key:value for key,value in (data.get('live') or {}).items() if key!='updated_at'}}
+            signature=json.dumps(visible_data,sort_keys=True,ensure_ascii=False)
+            view.show()
+            if preview.get('view_signature')!=signature:
+                view.sync(payload);preview['view_signature']=signature
         return self._save_pins() if persist else True
 
     def _expand_pin(self,kind):
         preview=self._pin_previews.get(kind)
+        if preview and kind.startswith('forge:'):
+            self._log.append_log('SYS: Artefato FORJA fixado: '+str(preview['data'].get('title','')))
+            return
         if preview and kind.startswith('photo:'):
             self._open_terminal()
             self._terminal.attachment(preview['data']['attachment_id'],preview['data']['title'],True)
@@ -5772,29 +6173,28 @@ class MainWindow(QMainWindow):
     def _remove_pin(self,kind):
         saved=self._load_pin_snapshots()
         self._pending_saved_pins=[pin for pin in saved if pin['key']!=kind]
+        previous=dict(self._pin_previews)
         preview=self._pin_previews.pop(kind,None)
+        if not self._save_pins():
+            self._pin_previews=previous
+            self._pending_saved_pins=saved
+            raise ValueError('Não consegui salvar a remoção. O card foi mantido; tente novamente.')
         if preview:
             if preview['view']:
                 preview['view'].sync({'visible':False})
             preview['widget'].hide();preview['widget'].deleteLater()
         if (self._presentation or {}).get('model',{}).get('kind')==kind:self._pinned=False
         if (self._pinned_context or {}).get('model',{}).get('kind')==kind:self._pinned_context=None
-        self._save_pins()
         self._layout_scene(True)
 
     def _position_pin(self):
         self._pin_button.hide()
         w,h=self._scene_stage.width(),self._scene_stage.height()
-        width=min(304,max(136,int(w*.27)))
-        height=min(190,max(112,int(h*.23)))
-        occupied=set()
-        for kind,preview in sorted(self._pin_previews.items(),key=lambda pair:0 if 'slot' in pair[1] else 1 if pair[0]=='weather' else 2 if pair[0]=='calendar' else 3):
-            preferred=preview.get('slot',0 if kind=='weather' else 1 if kind=='calendar' else 2)
-            slot=next(slot for slot in [preferred]+[i for i in range(4) if i!=preferred] if slot not in occupied)
-            occupied.add(slot)
-            preview['slot']=slot
-            x=12 if slot%2==0 else max(12,w-width-12)
-            y=84 if slot>=2 else max(84,h-12-height)
+        if getattr(self,'_pin_layout_reserved',False):w=max(1,int(w*.49))
+        from core.pin_layout import arrange
+        rectangles=arrange(self._pin_previews,w,h)
+        for kind,preview in self._pin_previews.items():
+            x,y,width,height=rectangles[kind]
             preview['widget'].setGeometry(x,y,width,height);preview['widget'].raise_()
             if 'pixmap' in preview:
                 preview['label'].setMinimumSize(1,1)
@@ -5804,22 +6204,50 @@ class MainWindow(QMainWindow):
 
     def interface_snapshot(self):
         model = self._presentation or {}
+        scene=self._visual_scene.snapshot() if getattr(self,'_visual_scene',None) else {'count':0,'elements':[],'library_available':True}
+        refresh_view=getattr(self,'_daily_refresh_view',None)
+        refresh_visible=bool(refresh_view and refresh_view.isVisible())
+        ultron_payload=getattr(self,'_ultron_payload',None)
+        ultron_state=ultron_payload.get('state',{}) if isinstance(ultron_payload,dict) else {}
+        ultron_visible=ultron_state.get('phase','idle')!='idle'
+        forge_active=getattr(getattr(self,'_forge_controller',None),'active',False) is True
+        neural_view=getattr(self.hud,'_spatial_core',None)
+        neural_state=getattr(neural_view,'_neural_observed',{}) if neural_view and not neural_view.failed else {}
+        neural_visible=bool(neural_state.get('progress',0)>.01 and neural_view.isVisible())
+        visible_content=bool(refresh_visible or ultron_visible or forge_active or self._content_panel.isVisible() or any(item['widget'].isVisible() for item in self._pin_previews.values()) or any(item.get('visible') for item in scene['elements']) or self._terminal.isVisible() or self._execution.isVisible())
+        visible_content=visible_content or neural_visible
         from core.panel_catalog import catalog,item_references
         references=item_references(model)
         selected=next((item for item in references if item['position']==model.get('focus',0)+1),{})
         return {"assistant": self._assistant_name, "visual": self.hud.hud_style,
+                'spectro':self._spectro_controller.snapshot() if self._spectro_controller else {'active':False,'observing_screen':False},
+                'neural_memory':{**neural_state,'visible':neural_visible,'observed':True if neural_state else False},
                 'environment': {**self._environment.snapshot(), 'renderer': 'fallback' if not self._space_view or self._space_view.failed
                                 else 'webgl' if self._space_view._loaded else 'loading'},
                 'catalog':catalog(),'references':references,
                 "state": self.hud.state, "accent": C.PRI,
-                'visual_scene':self._visual_scene.snapshot() if getattr(self,'_visual_scene',None) else {'count':0,'elements':[],'library_available':True},
+                'visual_scene':scene,
+                'protocols':{'ultron':{'visible':ultron_visible,'state':copy.deepcopy(ultron_state) if ultron_visible else None},
+                    'forge':{'active':forge_active}},
+                'daily_refresh':{'visible':refresh_visible,'transaction':refresh_view.transaction if refresh_visible else None,
+                    'detail':refresh_view.detail.text() if refresh_visible else None,
+                    'completed':refresh_view.bar.value() if refresh_visible else None,
+                    'total':refresh_view.bar.maximum() if refresh_visible else None},
+                'observation':{'source':'application_state','screen_capture':False,
+                    'window_visible':self.isVisible() and not self.isMinimized(),
+                    'has_visible_content':visible_content and self.isVisible() and not self.isMinimized()},
                 "viewport": {"width": self.width(), "height": self.height()},
+                'scene_viewport':{'width':self._scene_stage.width(),'height':self._scene_stage.height(),
+                    'coordinates':'scene_stage_pixels','origin_in_window':{'x':self._scene_stage.x(),'y':self._scene_stage.y()}},
+                'scene_position':self._scene_position,
+                'layout_animating':any(animation.state()==QPropertyAnimation.State.Running for animation in self._scene_animations),
                 "avatar_bounds": {"x":self._center_split.x(),"y":self._center_split.y(),"width":self._center_split.width(),"height":self._center_split.height()},
                 "resting": self._resting,
                 "workspace": {'terminal_open':self._terminal.isVisible(),'execution_open':self._execution.isVisible(),
                     'awaiting_photo':self._pending_image_pin,'attachments':[{'id':key,'name':item['name'],'image':item['image']} for key,item in self._attachments.items()]},
                 "presentation": {"visible": self._content_panel.isVisible(),
                                  "kind": model.get("model", {}).get("kind"),
+                                 'content':copy.deepcopy(model.get('model') or {'text':model.get('text','')}) if self._content_panel.isVisible() else None,
                                  'paused':bool(model.get('paused')),'narration_active':bool(model.get('narration_active')),
                                  'reading':bool(model.get('model',{}).get('reading')),'contact':model.get('model',{}).get('contact'),
                                  "city": model.get("model", {}).get("city"),
@@ -5830,11 +6258,24 @@ class MainWindow(QMainWindow):
                                  "bounds": {"x":self._content_panel.x(),"y":self._content_panel.y(),"width":self._content_panel.width(),"height":self._content_panel.height()}},
                 "settings_open": self._quick_drawer.isVisible() or bool(getattr(self,"_settings_hub",None) and self._settings_hub.isVisible()),
                 "pinned_context": (self._pinned_context or {}).get("title"),
+                "pin_layout": {'capacity':6,'arrangements':['free','row','column'],
+                    'coordinates':'normalized_top_left','viewport':{'width':self._scene_stage.width(),'height':self._scene_stage.height()}},
                 "pinned_previews": [{'kind':kind,'title':item['data'].get('title'),'slot':item.get('slot'),
+                    'visible':item['widget'].isVisible(),'content':copy.deepcopy(item['data']) if item['widget'].isVisible() else None,
+                    'placement':item.get('placement'),'capacity':6,
                     'temperature':item['data'].get('temperature'),'items':len(item['data'].get('items',[])),
                     'bounds':{'x':item['widget'].x(),'y':item['widget'].y(),'width':item['widget'].width(),'height':item['widget'].height()}}
                     for kind,item in self._pin_previews.items()],
                 "history": [item["title"] for item in self._presentation_history]}
+
+    def _start_screen_observation(self):
+        if getattr(self,'_closed_for_shutdown',False) or os.environ.get('QT_QPA_PLATFORM')=='offscreen':return
+        try:
+            from core.spectro import SpectroController
+            if self._spectro_controller is None:self._spectro_controller=SpectroController(self)
+            self._spectro_controller.start_observation()
+        except (OSError,ValueError) as error:
+            self.hud.append_log('SYS: Observacao indisponivel: '+type(error).__name__)
 
     def _apply_interface_request(self, request):
         try:
@@ -5844,6 +6285,29 @@ class MainWindow(QMainWindow):
             action, value = request["action"], request.get("value", "")
             if action == "inspect":
                 pass
+            elif action == 'spectro':
+                if getattr(self,'_closed_for_shutdown',False):raise ValueError('O Jarvis esta encerrando; o Espectro nao sera reaberto.')
+                if value in ('observe_current','resume_observation'):
+                    provider=getattr(self,'_spectro_context_provider',None)
+                    current=provider() if callable(provider) else None
+                    from core.spectro_commands import request as spectro_request
+                    parsed=spectro_request((current or {}).get('text',''),True)
+                    if current!=request.get('spectro_context') or not parsed or parsed[0]!=value:
+                        raise ValueError('Observacao exige a autorizacao atual para acompanhar este aplicativo.')
+                    used=getattr(self,'_spectro_consent_serial',None)
+                    if used==current.get('serial'):raise ValueError('Esta autorizacao ja foi usada. Para acompanhar outro aplicativo, faca um novo pedido.')
+                from core.spectro import SpectroController
+                if self._spectro_controller is None:self._spectro_controller=SpectroController(self)
+                settings=json.loads(request.get('setting') or '{}')
+                if not isinstance(settings,dict):raise ValueError('Informe os ajustes do Espectro como objeto.')
+                if value=='observe_current':
+                    target=current.get('spectro_target')
+                    if not isinstance(target,dict) or not target.get('ok'):raise ValueError('Selecione um aplicativo valido antes de autorizar.')
+                    settings['expected_target']=target
+                request['result']=self._spectro_controller.apply(value,settings)
+                if value in ('observe_current','resume_observation') and request['result'].get('ok'):
+                    self._spectro_consent_serial=current.get('serial')
+                return
             elif action == 'environment':
                 self._environment.command(value)
                 self._ui_sounds.play('space')
@@ -5868,16 +6332,67 @@ class MainWindow(QMainWindow):
                     self._content_panel.hide();self._settle_timer.stop();self._cancel_presentation();self._layout_scene(True)
                 else:raise ValueError('Este alvo não está aberto; não apaguei prévias fixadas.')
             elif action=='move_pin':
+                old_places={key:(copy.deepcopy(item.get('placement')),item.get('slot')) for key,item in self._pin_previews.items()}
                 preview=self._pin_previews.get(value)
-                corners={'bottom_left':0,'bottom_right':1,'upper_left':2,'upper_right':3}
+                corners={'bottom_left':0,'bottom_right':1,'upper_left':2,'upper_right':3,'middle_left':4,'middle_right':5}
                 corner=request.get('setting','')
-                if not preview or corner not in corners:raise ValueError('Informe a chave da prévia fixada e um canto válido.')
-                self._position_pin()
-                old_slot=preview['slot'];new_slot=corners[corner]
-                for other in self._pin_previews.values():
-                    if other is not preview and other.get('slot')==new_slot:other['slot']=old_slot
-                preview['slot']=new_slot;self._layout_scene(True)
-                self._save_pins()
+                if preview and corner not in ('row','column'):
+                    self._position_pin()
+                    width=max(1,self._scene_stage.width());height=max(1,self._scene_stage.height())
+                    for item in self._pin_previews.values():
+                        if item.get('placement',{}).get('layout'):
+                            rect=item['widget'].geometry()
+                            item['placement']={'x':rect.x()/width,'y':rect.y()/height,'width':rect.width()/width,'height':rect.height()/height}
+                if corner in ('row','column'):
+                    keys=list(self._pin_previews);total=len(keys)
+                    for index,key in enumerate(keys):
+                        self._pin_previews[key]['placement']={'x':0,'y':0,'layout':corner}
+                elif not preview:raise ValueError('Informe a chave real da previa fixada.')
+                elif corner in corners:
+                    from core.pin_layout import arrange
+                    width,height=self._scene_stage.width(),self._scene_stage.height()
+                    current=arrange(self._pin_previews,width,height)
+                    top=min(84,max(12,height//5));available=max(1,height-top-12)
+                    for key,item in self._pin_previews.items():
+                        if item.get('placement'):continue
+                        x,y,rw,rh=current[key];right=max(12,width-rw-12)
+                        bottom=max(top,height-rh-12);middle=top+max(0,(available-rh)//2)
+                        anchors=((12,bottom),(right,bottom),(12,top),(right,top),(12,middle),(right,middle))
+                        item['slot']=min(range(6),key=lambda i:(x-anchors[i][0])**2+(y-anchors[i][1])**2)
+                    old_slot=preview.get('slot',0)
+                    for key,item in self._pin_previews.items():
+                        if key!=value and not item.get('placement') and item.get('slot')==corners[corner]:
+                            item['slot']=old_slot
+                    preview.pop('placement',None);preview['slot']=corners[corner]
+                else:
+                    from core.pin_layout import validate_placement
+                    try:placement=validate_placement(json.loads(corner))
+                    except (ValueError,TypeError):
+                        for key,(placement,slot) in old_places.items():
+                            self._pin_previews[key].pop('placement',None)
+                            if placement is not None:self._pin_previews[key]['placement']=placement
+                        raise
+                    preview['placement']=placement
+                from core.pin_layout import arrange
+                layout_error=None
+                try:
+                    rectangles=arrange(self._pin_previews,self._scene_stage.width(),self._scene_stage.height(),strict=True)
+                    if corner in corners:
+                        x,y,rw,rh=rectangles[value]
+                        right=max(12,width-rw-12);bottom=max(top,height-rh-12);middle=top+max(0,(available-rh)//2)
+                        wanted=((12,bottom),(right,bottom),(12,top),(right,top),(12,middle),(right,middle))[corners[corner]]
+                        if (x,y)!=wanted:raise ValueError('O canto solicitado não está livre para este tamanho. Mova outra prévia ou escolha outra posição.')
+                    saved=self._save_pins()
+                except ValueError as error:
+                    saved=False;layout_error=str(error)
+                if not saved:
+                    for key,(placement,slot) in old_places.items():
+                        item=self._pin_previews[key]
+                        item.pop('placement',None);item.pop('slot',None)
+                        if placement is not None:item['placement']=placement
+                        if slot is not None:item['slot']=slot
+                    raise ValueError(layout_error or 'Nao consegui salvar as novas posicoes.')
+                self._layout_scene(True)
             elif action == "clear":
                 if getattr(self,'_visual_scene',None):self._visual_scene.clear_all(preserve_pinned=True)
                 self._terminal.hide();self._execution.hide();self._execution_settle.stop();self._pending_image_pin=False
@@ -6028,6 +6543,8 @@ class MainWindow(QMainWindow):
             request["result"] = {"ok": True, "screen": self.interface_snapshot()}
         except Exception as error:
             request["result"] = {"ok": False, "error": str(error)}
+            try:request['result']['screen']=self.interface_snapshot()
+            except Exception:pass
         finally:
             request["done"].set()
 
@@ -6146,7 +6663,7 @@ class MainWindow(QMainWindow):
         return b
 
     def _build_quiz_panel(self) -> QWidget:
-        w = QWidget()
+        w = _FuiOverlay()
         w.setObjectName("QuizPanel")
         w.setStyleSheet(f"""
             QWidget#QuizPanel {{
@@ -6463,16 +6980,8 @@ class MainWindow(QMainWindow):
         """Returns True if auto-start is currently registered on this OS."""
         try:
             if _OS == "Windows":
-                import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ)
-                try:
-                    winreg.QueryValueEx(key, "JARVIS_AI")
-                    return True
-                except FileNotFoundError:
-                    return False
-                finally:
-                    winreg.CloseKey(key)
+                from core.windows_autostart import enabled
+                return enabled()
             elif _OS == "Darwin":
                 return (Path.home() / "Library" / "LaunchAgents"
                         / "com.jarvis.assistant.plist").exists()
@@ -6486,17 +6995,8 @@ class MainWindow(QMainWindow):
         try:
             script = str(Path(__file__).resolve().parent / "main.py")
             if _OS == "Windows":
-                import winreg
-                reg = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
-                if currently_on:
-                    winreg.DeleteValue(reg, "JARVIS_AI")
-                else:
-                    pythonw = Path(sys.executable).parent / "pythonw.exe"
-                    exe = str(pythonw if pythonw.exists() else sys.executable)
-                    winreg.SetValueEx(reg, "JARVIS_AI", 0, winreg.REG_SZ,
-                                      f'"{exe}" "{script}"')
-                winreg.CloseKey(reg)
+                from core.windows_autostart import set_enabled
+                set_enabled(not currently_on)
             elif _OS == "Darwin":
                 plist_dir = Path.home() / "Library" / "LaunchAgents"
                 plist_dir.mkdir(parents=True, exist_ok=True)
@@ -7066,13 +7566,27 @@ class MainWindow(QMainWindow):
             state='SLEEPING'
         prior_state=self.hud.state
         was_speaking=self.hud.speaking
-        if was_speaking and state!='SPEAKING' and getattr(self,'_visual_scene',None):
+        if state=='SPEAKING' and not was_speaking and self._presentation and self._presentation.get('completed') and not self._pinned and not getattr(self,'_refresh_lock',None):
+            self._presentation_history=(self._presentation_history+[self._presentation.copy()])[-8:]
+            self._presentation=None
+            self._presentation_clock.replace_scene()
+            self._content_panel.hide()
+            self._layout_scene(True)
+        if state=='SPEAKING' and not was_speaking and self._ultron_clock.cancelled:
+            self._ultron_clock.resume()
+            self._ultron_clock.elapsed=getattr(self,'_narration_elapsed',0.)
+            self._ultron_clock.next_cue=self._ultron_clock.elapsed
+        if state=='LISTENING' and (was_speaking or prior_state=='THINKING') and getattr(self,'_visual_scene',None):
             self._visual_scene.finish()
+        if state=='SPEAKING' and not was_speaking and getattr(self,'_visual_scene',None):
+            self._visual_scene.resume()
         if state=="SPEAKING" and not was_speaking and self._presentation_clock.cancelled:
+            self._presentation_clock.resume()
+        elif state=='SPEAKING' and not was_speaking and self._presentation_clock.finished:
             self._presentation_clock.resume()
         self.hud.state    = state
         self.hud.speaking = (state == "SPEAKING")
-        self._ui_sounds.voice(self.hud.speaking)
+        self._ui_sounds.voice(state in ('SPEAKING','THINKING'))
         self._ui_sounds.scene(resting=state=='SLEEPING')
         if state!=prior_state:
             if state=='SLEEPING':self._ui_sounds.play('rest')
@@ -7081,7 +7595,7 @@ class MainWindow(QMainWindow):
             elif state=='THINKING':self._ui_sounds.play('thinking')
         if state == "SPEAKING":
             self._settle_timer.stop()
-        elif was_speaking and self._presentation and self._presentation.get('narration_active') and self._presentation.get('audio_started'):
+        elif state=='LISTENING' and self._presentation and self._presentation.get('narration_active') and self._presentation.get('audio_started'):
             if self._content_spatial and self._presentation_clock.active:
                 self._content_spatial.page().runJavaScript("window.finishPresentation && window.finishPresentation()")
             final=self._presentation.get('model',{}).get('newsLast',True)
@@ -7089,6 +7603,8 @@ class MainWindow(QMainWindow):
                 self._set_news_phase('settled')
                 self._presentation.update(narration_active=False,completed=True)
             self._presentation['audio_started']=False
+            self._presentation['pending_beats']=[]
+            self._presentation_clock.finish()
             hold=_read_full_config().get("presentation_hold",15)
             if final and not self._pinned and not getattr(self,'_refresh_lock',None) and not self._presentation_clock.cancelled and isinstance(hold,(int,float)) and hold>0:
                 self._settle_timer.start(int(min(120,hold)*1000))
@@ -7102,6 +7618,14 @@ class MainWindow(QMainWindow):
             return False
 
     def _show_setup(self):
+        if self._overlay is not None:
+            self._overlay.raise_()
+            return
+        self._ready=False
+        self._center_split.hide()
+        if getattr(self,'_opening_veil',None):
+            self._opening_veil.hub_visible=False
+            self._opening_veil.update()
         ov = SetupOverlay(self.centralWidget())
         cw = self.centralWidget()
         ow, oh = 460, 390
@@ -7112,20 +7636,34 @@ class MainWindow(QMainWindow):
         )
         ov.done.connect(self._on_setup_done)
         ov.show()
+        ov.raise_()
         self._overlay = ov
 
     def _on_setup_done(self, key: str, os_name: str):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        config = _read_full_config()
-        config.update(gemini_api_key=key, os_system=os_name, language="pt-BR")
-        API_FILE.write_text(
-            json.dumps(config, indent=4, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        from core.local_data import LOCK,atomic_write
+        try:
+            with LOCK:
+                config = _read_full_config()
+                config.update(gemini_api_key=key, os_system=os_name, language="pt-BR")
+                atomic_write(API_FILE,json.dumps(config,indent=4,ensure_ascii=False).encode('utf-8'))
+        except Exception as error:
+            from core.connection_errors import describe
+            message=describe(error)
+            if isinstance(self._overlay,SetupOverlay):
+                self._overlay.save_status.setText(message);self._overlay.save_status.show()
+            self._log.append_log('ERR: '+message)
+            return
         self._ready = True
         if self._overlay:
             self._overlay.hide()
+            self._overlay.deleteLater()
             self._overlay = None
+        if self._opening_veil:
+            self._opening_veil.hub_visible=True
+            self._opening_veil.update()
+        self._center_split.show()
+        self._layout_scene()
+        self._start_environment()
         self._apply_state("LISTENING")
         self._assistant_name = _read_full_config().get("assistant_name", "DIEF JARVIS") or "DIEF JARVIS"
         self._log.append_log(f"SYS: Inicializado. SO={os_name.upper()}. {self._assistant_name} conectado.")
@@ -7141,6 +7679,65 @@ class _RootShim:
 
 
 class JarvisUI:
+    @property
+    def forge_runtime(self):
+        from core.forge_host import runtime_for
+        return runtime_for(self._win)
+
+    def control_forge(self,action):
+        packet={'action':action,'done':threading.Event()}
+        self._win._forge_sig.emit(packet)
+        if not packet['done'].wait(30):return {'ok':False,'error':'A cena da Forja nao confirmou a transicao.'}
+        return packet.get('result',{'ok':False,'error':'Cena indisponivel.'})
+
+    def pin_forge_artifact(self,artifact):
+        packet={'action':'pin_artifact','data':{'kind':'forge_artifact','artifact_id':artifact['id'],'title':artifact['name'],'narrationDriven':False},'done':threading.Event()}
+        self._win._forge_sig.emit(packet)
+        if not packet['done'].wait(10):return {'ok':False,'error':'O painel nao confirmou o artefato.'}
+        return packet.get('result',{'ok':False})
+
+    @property
+    def ultron_runtime(self):
+        with self._ultron_context_lock:
+            if self._ultron_runtime is None:
+                from core.ultron import Runtime
+                self._ultron_runtime=Runtime()
+                self._win._ultron_runtime=self._ultron_runtime
+            return self._ultron_runtime
+
+    def record_ultron_user(self,text):
+        if not isinstance(text,str) or not text.strip():return
+        target=None
+        from core.spectro_commands import request as spectro_request
+        parsed=spectro_request(text,True)
+        if parsed and parsed[0]=='observe_current':
+            from core.spectro_perception import foreground
+            try:target=foreground()
+            except Exception:target={'ok':False}
+        with self._ultron_context_lock:
+            self._ultron_user={'text':text[:4096],'serial':self._ultron_user['serial']+1}
+            if target is not None:self._ultron_user['spectro_target']=target
+
+    def invalidate_ultron_user(self):
+        with self._ultron_context_lock:self._ultron_user={**self._ultron_user,'text':''}
+
+    def ultron_authorization(self,context):
+        from contextlib import contextmanager
+        @contextmanager
+        def guard():
+            with self._ultron_context_lock:
+                if context!=self._ultron_user or not self._ultron_user.get('text'):
+                    raise ValueError('Pedido substituido por um novo turno.')
+                yield
+        return guard()
+
+    def ultron_user_context(self):
+        with self._ultron_context_lock:return dict(self._ultron_user)
+
+    def present_ultron(self,snapshot,result):
+        from core.ultron_presentation import projection
+        self._win._ultron_sig.emit({'state':projection(snapshot),'result':result})
+
     def update_environment_media(self, playback):
         self._win._environment_media_sig.emit(playback if isinstance(playback,dict) else {})
 
@@ -7165,8 +7762,13 @@ class JarvisUI:
     def show_manifestation(self, model):
         self._win._manifestation_sig.emit({**model,"narrationDriven":model.get('kind') not in ('status','status-end')})
 
-    def control_interface(self, action, value="", setting=""):
+    def show_neural_memory(self, payload):
+        self._win._neural_sig.emit(payload)
+
+    def control_interface(self, action, value="", setting="", *, user_context=None):
         request = {"action": action, "value": value, "setting": setting, "done": threading.Event()}
+        if action=='spectro' and value in ('observe_current','resume_observation'):
+            request['spectro_context']=dict(user_context) if user_context is not None else self.ultron_user_context()
         if QThread.currentThread() == self._win.thread():
             self._win._apply_interface_request(request)
         else:
@@ -7177,6 +7779,9 @@ class JarvisUI:
         return request["result"]
 
     def __init__(self, face_path: str, size=None):
+        self._ultron_context_lock=threading.RLock()
+        self._ultron_user={'text':'','serial':0}
+        self._ultron_runtime=None
         self._app = QApplication.instance() or QApplication(sys.argv)
         from core.branding import initialize_application
         initialize_application(self._app)
@@ -7188,6 +7793,7 @@ class JarvisUI:
             self._app.installTranslator(self._translator)
         self._app.setStyle("Fusion")
         self._win = MainWindow(face_path)
+        self._win._spectro_context_provider=self.ultron_user_context
         from core import confirm
         confirm.bind(self.show_confirm,self.hide_confirm,self.write_log)
         self.root = _RootShim(self._app)

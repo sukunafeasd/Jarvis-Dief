@@ -24,8 +24,8 @@ export class HolographicPanelMotion {
         void main() {
           vec2 p = vec2(vUv.x, 1.0-vUv.y)*size;
           vec2 q = abs(p-size*.5) - (size*.5-vec2(5.0));
-          float cut = mix(18.0,10.0,compact);
-          float d = abs(max(max(q.x,q.y),(q.x+q.y+cut)*.7071));
+          vec2 roundQ=q+vec2(14.0);
+          float d=abs(length(max(roundQ,0.0))+min(max(roundQ.x,roundQ.y),0.0)-14.0);
           float traveling = pow(max(0.0, 1.0-abs(fract((p.x+p.y)*.0016-time*.055)-.5)*2.0),24.0);
           float breathe = .72+.28*sin(time*.8);
           float edge = glow(d,1.25)*(.09+.54*traveling+.25*focus);
@@ -33,7 +33,7 @@ export class HolographicPanelMotion {
           float formed = smoothstep(0.0,.5,assembly);
           float scan = glow(p.y-assembly*size.y,2.0)*(1.0-assembly)*.22;
           float corner = smoothstep(.25,.9,abs(vUv.x-.5)*2.0)*smoothstep(.25,.85,abs(vUv.y-.5)*2.0);
-          vec3 color = mix(accent,vec3(1.0,.19,.25),corner);
+          vec3 color = mix(vec3(.30,.72,1.),vec3(.83,.95,1.),corner);
           float alpha = clamp((edge+halo)*formed+scan,0.0,.7)*panel;
           if(alpha<.002) discard;
           gl_FragColor=vec4(color,alpha);

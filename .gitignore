@@ -38,6 +38,8 @@ __pycache__/
 *.so
 /build/
 /dist/
+/DIEF JARVIS.exe
+/DIEF JARVIS.exe.sha256
 *.egg-info/
 .eggs/
 .venv/

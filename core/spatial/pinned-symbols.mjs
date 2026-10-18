@@ -22,7 +22,17 @@ export function buildPinnedSymbol(model) {
   if(kind==='weather') {
     const code=Number.isFinite(model.code)?model.code:-1;
     if(code>0)for(let i=0;i<3;i++) {
-      const cloud=mesh(new THREE.SphereGeometry(i===1?.32:.25,16,10),'#b1d5e6');
+      const cloud=mesh(new THREE.SphereGeometry(i===1?.32:.25,24,16),'#3996c2');
+      cloud.material.emissive.set('#1ea8f5');cloud.material.emissiveIntensity=.55;
+      const glow=new THREE.Mesh(cloud.geometry,new THREE.ShaderMaterial({
+        transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+        vertexShader:`varying vec3 normalView; varying vec3 eye;
+          void main(){vec4 p=modelViewMatrix*vec4(position,1.);normalView=normalize(normalMatrix*normal);eye=-p.xyz;gl_Position=projectionMatrix*p;}`,
+        fragmentShader:`varying vec3 normalView; varying vec3 eye;
+          void main(){float rim=pow(1.-abs(dot(normalize(normalView),normalize(eye))),2.);
+            gl_FragColor=vec4(.24,.78,1.,rim*.7);}`,
+      }));
+      glow.scale.setScalar(1.1);cloud.add(glow);
       cloud.position.set((i-1)*.34,i===1?.18:.04,-i*.05);cloud.scale.set(1.16,.82,1);cloud.userData.pinCloud=i;
     }
     if(code>=0&&code<=2){const sun=mesh(new THREE.IcosahedronGeometry(.23,2),model.is_day===0?'#bed1ef':'#ffc259');sun.position.set(.45,.30,-.2);sun.userData.pinPulse=0;}
@@ -105,11 +115,12 @@ export function animatePinnedSymbol(root,time,reduced) {
     if(item.userData.pinPosition)item.position.copy(item.userData.pinPosition);
     if(item.userData.pinSpin)item.rotation.z=reduced?0:time*.35;
     if(!reduced&&item.userData.pinPulse!==undefined){
-      item.scale.multiplyScalar(1+.04*Math.sin(time*1.8+i));
-      item.material.emissiveIntensity=.45+.18*(.5+.5*Math.sin(time*1.8+i));
+      item.scale.multiplyScalar(1+.065*Math.sin(time*1.8+i));
+      item.material.emissiveIntensity=.58+.28*(.5+.5*Math.sin(time*1.8+i));
+      if(root.userData.pinKind==='whatsapp')item.position.y+=.065*Math.sin(time*1.35+i);
     }
-    if(!reduced&&item.userData.pinLift)item.position.y+=.12*(.5+.5*Math.sin(time*1.5));
-    if(item.userData.pinCloud!==undefined&&!reduced)item.position.y+=.035*Math.sin(time*.7+i);
+    if(!reduced&&item.userData.pinLift){item.position.y+=.18*(.5+.5*Math.sin(time*1.5));item.rotation.x=.08*Math.sin(time*.9);}
+    if(item.userData.pinCloud!==undefined&&!reduced){item.position.y+=.075*Math.sin(time*.7+i);item.rotation.y=.10*Math.sin(time*.45+i);}
     if(!reduced&&item.userData.pinBase)item.rotation.z=time*.22;
     if(!reduced&&item.geometry?.type==='BoxGeometry'){
       if(root.userData.pinKind==='news' && item.userData.pinPulse!==undefined){

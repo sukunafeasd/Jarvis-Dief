@@ -1,5 +1,8 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03060b}body{background-image:url('./assets/deep-space.png');background-size:cover;background-position:center}canvas{display:block;width:100%;height:100%;pointer-events:none}#planet-label{position:absolute;left:0;top:0;z-index:1;pointer-events:none;color:#d7f8ff;font:14px 'Segoe UI',sans-serif;border-top:1px solid #46b9c7;padding:8px 12px;background:rgba(2,10,18,.76);width:220px;max-width:calc(100vw - 32px);box-sizing:border-box}#planet-label strong{display:block;font-size:18px;font-weight:500}#planet-label span{display:block;margin-top:4px;font-size:12px;color:#95bbc9}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}</style>
+<link rel="stylesheet" href="./planet-facts.css">
+<link rel="stylesheet" href="./ultron.css">
+<link rel="icon" href="data:,">
 <script type="importmap">{"imports":{"three":"./vendor/package/build/three.module.js"}}</script>
-</head><body><div id="planet-label" hidden><strong></strong><span>Representação artística · sem escala</span></div><p class="sr-only" id="environment-summary" role="status" aria-live="polite"></p><script type="module" src="./space.mjs"></script></body></html>
+</head><body><div id="planet-label" hidden><strong></strong><span class="planet-kind"></span><dl></dl><p class="planet-fact"></p><span class="planet-disclaimer">Fonte: NASA · medidas aproximadas<br>Representação artística · sem escala</span></div><p class="sr-only" id="environment-summary" role="status" aria-live="polite"></p><canvas id="ultron-canvas" aria-hidden="true"></canvas><section id="ultron-projection" hidden aria-label="Diagnostico ULTRON"></section><script type="module" src="./ultron-host.mjs"></script><script type="module" src="./space.mjs"></script></body></html>

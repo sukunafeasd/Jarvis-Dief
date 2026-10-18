@@ -2,9 +2,17 @@
 import math
 import tkinter as tk
 from pathlib import Path
-from core.fui_geometry import core_lines,chamfer_points,BACKGROUND,CYAN,RED,TEXT,MUTED
+from core.fui_geometry import core_lines,BACKGROUND,CYAN,RED,TEXT,MUTED
 
 NAMES=('Dependências','Arquivos','Áudio','IA','Gmail','WhatsApp')
+
+
+def rounded_box(canvas,x,y,w,h,radius=14,**options):
+    r=min(radius,w/2,h/2)
+    points=(x+r,y,x+w-r,y,x+w,y,x+w,y+r,
+        x+w,y+h-r,x+w,y+h,x+w-r,y+h,
+        x+r,y+h,x,y+h,x,y+h-r,x,y+r,x,y)
+    return canvas.create_polygon(points,smooth=True,splinesteps=24,**options)
 
 
 class BootstrapSurface:
@@ -28,28 +36,24 @@ class BootstrapSurface:
             c.create_image(0,0,image=self.photo,anchor='nw')
         except (ImportError,OSError,tk.TclError):
             pass
-        for x in range(20,width,32):c.create_line(x,8,x,height-8,fill='#102c36')
-        for y in range(20,height,32):c.create_line(8,y,width-8,y,fill='#102c36')
-        border=chamfer_points(width,height)
-        c.create_polygon(border,fill='',outline='#224c59',width=3)
-        c.create_polygon(border,fill='',outline='#64b9c6',width=1)
-        for x,y,sx,sy in ((5,5,1,1),(width-5,5,-1,1),(5,height-5,1,-1),(width-5,height-5,-1,-1)):
-            points=(x+sx*54,y,x+sx*16,y,x,y+sy*16,x,y+sy*44)
-            for stroke,color in ((9,'#351923'),(5,'#8c283a'),(2,RED)):c.create_line(points,fill=color,width=stroke)
+        for stroke,color in ((12,'#092c43'),(7,'#164a65'),(2,'#64c6f5'),(1,'#c3efff')):
+            rounded_box(c,6,6,width-12,height-12,fill='',outline=color,width=stroke)
+        rounded_box(c,11,11,width-22,height-22,fill='',outline='#275975',width=1)
+        c.create_line(26,7,width-26,7,fill='#91d9ff')
+        x=width*.65
+        c.create_line(x-36,7,x-28,14,x+28,14,x+36,7,fill='#54bdf5')
         c.create_text(34,42,text='DIEF JARVIS',fill=TEXT,font=('Segoe UI',21,'bold'),anchor='w')
         c.create_text(36,76,text='ACESSO AO SISTEMA' if mode=='admin' else 'INICIALIZANDO AMBIENTE',fill=CYAN,font=('Segoe UI',10),anchor='w')
         c.create_line(34,96,width-34,96,fill='#295967')
-        c.create_line(34,96,100,96,fill=RED,width=2)
+        c.create_line(34,96,100,96,fill='#8adaff',width=2)
         c.create_text(width-32,36,text='×',fill=MUTED,font=('Segoe UI',19),tags='close')
         self.rows={};self.indicators={};self.states={};self.checked=set()
         for index,name in enumerate(self.names if mode=='startup' else ()):
             y=115+index*44
-            points=chamfer_points(width-206,41,inset=1,cut=7)
-            points=tuple(value+(195 if i%2==0 else y) for i,value in enumerate(points))
-            c.create_polygon(points,fill='#09151c',outline='#285967')
+            rounded_box(c,195,y,width-206,41,8,fill='#061827',outline='#27658d',width=1)
             c.create_line(197,y+9,197,y+31,fill=CYAN,width=2)
             c.create_text(212,y+9,text=name,fill=TEXT,font=('Segoe UI',9,'bold'),anchor='w')
-            label=tk.Label(root,text='Aguardando',anchor='w',fg=MUTED,bg='#09151c',font=('Segoe UI',9),wraplength=365)
+            label=tk.Label(root,text='Aguardando',anchor='w',fg=MUTED,bg='#061827',font=('Segoe UI',9),wraplength=365)
             c.create_window(212,y+29,window=label,anchor='w',width=365,height=22)
             self.rows[name]=label
             self.indicators[name]=c.create_oval(width-34,y+8,width-28,y+14,fill='#4a6370',outline='')

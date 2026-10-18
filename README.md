@@ -1,7 +1,25 @@
-# DIEF JARVIS 1.0
+# DIEF JARVIS 2.0
 
 Assistente desktop em portugues para Windows 10/11 x64, com interface espacial,
 nucleo holografico, voz, memoria local e integracoes configuradas pelo usuario.
+
+## Novidades da 2.0
+
+- Modo Espectro: holograma no desktop, observacao da janela ativa, notas,
+  marca-texto, setas, cores e desenhos temporarios. Diga "pare de observar"
+  para pausar a observacao; "volte a observar" retoma.
+- Modo Forja: criacao de projetos com Codex, conta propria, previa e biblioteca.
+  Requer Codex instalado e autenticacao individual em Configuracoes > Conexoes.
+- Protocolo Ultron: diagnostico, monitoramento e recuperacao controlada.
+- Forma Neural: consulta de memorias com fontes e transicao holografica.
+- Personalidade adaptativa, contexto de tarefas e acompanhamento de etapas.
+- Novos temas, icones, planetas, configuracoes e informacoes fixadas atualizaveis.
+- Correcoes de voz, interrupcao, transicoes, conexoes e resumo diario.
+
+A observacao usa controles acessiveis da janela em primeiro plano, nao video
+continuo. Janelas sensiveis sao suspensas. Marcacoes nao executam cliques.
+Servicos opcionais precisam da conta/chave do proprio usuario; nenhuma chave
+Fish Audio ou conta ChatGPT acompanha o instalador.
 
 ## Instalar
 

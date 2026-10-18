@@ -24,6 +24,7 @@ class PresentationClock:
         self.dropped = 0
         self.active = False
         self.cancelled = False
+        self.finished = False
 
     def enqueue(self,text, at=None, duration=None):
         if not isinstance(text,str):return
@@ -44,11 +45,16 @@ class PresentationClock:
                              else max(.35,len(part.split())*.42))
 
     def advance(self,seconds):
-        if self.cancelled or not valid_time(seconds) or seconds==0:
+        if self.cancelled or self.finished or not valid_time(seconds) or seconds==0:
             return {"elapsed":self.elapsed,"cues":[]}
         self.active = True
-        self.elapsed += max(0,min(.5,seconds))
+        self.elapsed += seconds
         fired=[]
+        # A later cue anchored to played PCM supersedes older timing estimates.
+        due_anchors=[i for i,(_,at,anchored) in enumerate(self.pending) if anchored and at<=self.elapsed]
+        if due_anchors:
+            last=max(due_anchors)
+            self.pending=deque(entry for i,entry in enumerate(self.pending) if i>=last or entry[2])
         while self.pending:
             due=self.pending[0][1]
             anchored=self.pending[0][2]
@@ -65,15 +71,23 @@ class PresentationClock:
         self.active=False
         self.cancelled=True
 
+    def finish(self):
+        self.pending.clear()
+        self.next_cue=self.elapsed
+        self.active=False
+        self.finished=True
+
     def replace_scene(self):
         if self.cancelled:
             self.reset()
         else:
             self.pending.clear()
             self.next_cue = self.elapsed
+            self.finished = False
 
     def resume(self):
         if self.cancelled:
             self.elapsed=0
             self.next_cue=0
         self.cancelled=False
+        self.finished=False

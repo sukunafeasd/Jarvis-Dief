@@ -19,7 +19,7 @@ class UniversalPinTests(unittest.TestCase):
     def test_every_consulted_kind_pins_and_clears_without_losing_preview(self):
         for kind in ('weather','tasks','calendar','gmail','whatsapp','news','system','memory','search','files','data'):
             self.window._show_manifestation({'kind':kind,'title':'Demonstracao','temperature':23,'count':2,
-                'items':[{'title':'Dados de teste','detail':'Exemplo sintetico'}]})
+                'items':[{'id':'synthetic-record','title':'Dados de teste','detail':'Exemplo sintetico'}]})
             result=self.command('pin')
             self.assertTrue(result['ok'],(kind,result))
             self.assertIn(kind,self.window._pin_previews)
@@ -73,7 +73,7 @@ class UniversalPinTests(unittest.TestCase):
 
     def test_saved_capacity_does_not_allow_replacing_other_pins(self):
         from unittest.mock import Mock
-        saved=[{'key':kind,'data':{'kind':kind,'items':[]},'slot':i} for i,kind in enumerate(('calendar','gmail','news','memory'))]
+        saved=[{'key':kind,'data':{'kind':kind,'items':[]},'slot':i} for i,kind in enumerate(('calendar','gmail','news','memory','system','weather'))]
         self.window._pin_store=Mock();self.window._pin_store.load.return_value=saved
         self.window._pins_restored=False;self.window._pending_saved_pins=None
         with self.assertRaises(ValueError):self.window._pin_data({'kind':'tasks','count':1})
@@ -120,11 +120,12 @@ class UniversalSymbolTests(unittest.IsolatedAsyncioTestCase):
             await self.page.screenshot(path=str(OUTPUT/(kind+'.png')))
         self.assertEqual(self.errors,[])
 
-    async def test_staged_shader_preparation_keeps_core_hidden_until_entrance(self):
+    async def test_staged_shader_preparation_keeps_real_core_distant_until_entrance(self):
         await self.page.goto(self.url+'/index.html?staged=1')
         await self.page.wait_for_function('document.body.dataset.ready==="true"')
         before=await self.page.evaluate('window.hologramDiagnostics()')
-        self.assertFalse(before['coreVisible'])
+        self.assertTrue(before['coreVisible'])
+        self.assertEqual(before['travel'],24)
         self.assertEqual(before['assembly'],1)
         visible=await self.page.evaluate('() => {window.updateEnvironment({staging:false,entrance:{at:Date.now(),duration:4300,cancelAt:null}});return window.hologramDiagnostics().coreVisible;}')
         self.assertTrue(visible)
@@ -136,7 +137,7 @@ class UniversalSymbolTests(unittest.IsolatedAsyncioTestCase):
 
 
 class VeilTests(unittest.TestCase):
-    def test_loading_always_has_distant_hub_and_release_stops_animation(self):
+    def test_loading_has_no_substitute_hub_and_release_stops_animation(self):
         from PyQt6.QtWidgets import QApplication,QWidget
         from PyQt6.QtTest import QTest
         from core.opening_veil import OpeningVeil
@@ -145,7 +146,7 @@ class VeilTests(unittest.TestCase):
         try:
             QTest.qWait(100)
             image=veil.grab().toImage();center=image.pixelColor(400,250)
-            self.assertGreater(center.red(),center.blue())
+            self.assertLessEqual(center.red(),center.blue())
             self.assertTrue(veil.timer.isActive())
             veil.release();QTest.qWait(450)
             self.assertFalse(veil.isVisible());self.assertFalse(veil.timer.isActive())

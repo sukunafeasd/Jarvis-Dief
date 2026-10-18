@@ -70,8 +70,8 @@ def require_admin():
             close()
         else:
             notice.configure(text='A elevação não foi autorizada. Tente novamente ou feche o Jarvis.')
-    button=tk.Button(root, text='Reiniciar como administrador', command=restart, bg='#54242e', fg='#edfaff',
-              activebackground='#743342',activeforeground='#ffffff',highlightbackground='#ff5660',highlightthickness=1,
+    button=tk.Button(root, text='Reiniciar como administrador', command=restart, bg='#075393', fg='#edfaff',
+              activebackground='#167bb3',activeforeground='#ffffff',highlightbackground='#91d9ff',highlightthickness=1,
               relief='flat', padx=18, pady=10, font=('Segoe UI',11))
     surface.canvas.create_window(width/2,377,window=button,width=width-80,height=40)
     def tick():

@@ -14,11 +14,10 @@ class EnvironmentVisualAudit(unittest.IsolatedAsyncioTestCase):
             state=await self.page.evaluate('window.spaceDiagnostics()')
             self.assertEqual(state['mode'],mode)
             if mode in ('analysis','execution','focus'):
-                self.assertEqual(state['solarVisibility'],0)
+                self.assertEqual(state['solarVisibility'],0 if mode=='focus' else .45)
                 self.assertFalse(await self.page.locator('#planet-label').is_visible())
             self.assertEqual(state['gridOpacity'],0)
-            if mode=='analysis':self.assertGreater(state['networkOpacity'],.2)
-            if mode=='execution':self.assertGreater(state['networkOpacity'],.1)
+            self.assertEqual(state['networkOpacity'],0)
             if mode=='assistant':self.assertEqual(state['planet'],None)
         self.assertEqual(self.errors,[])
 

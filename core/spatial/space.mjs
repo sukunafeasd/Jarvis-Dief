@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import {SolarSystem} from './solar-system.mjs';
-import {rigTarget,frameBudget,clamp} from './environment-rig.mjs';
+import {fillPlanetFacts} from './planet-facts.mjs';
+import {rigTarget,frameBudget,clamp,observatoryCamera} from './environment-rig.mjs';
+import {installForgeTransition} from './forge-transition.mjs';
 
 let state={visible:true,motion:'full',phase:'idle',mode:'assistant',level:0,staging:new URLSearchParams(location.search).get('staged')==='1'};
 let renderer,timer,last=0,time=0,frames=0,backdrop,solar,disposed=false;
 let fps=0,frameSamples=0,sampleTime=0,quality=1,slowSince=0,fastSince=0;
 let ambient=.72,gridVisibility=.018;
+let renderWidth=0,renderHeight=0,renderRatio=0;
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(48,1,.1,220);
 camera.position.z=3;
 const stars=new THREE.Group();scene.add(stars);
@@ -51,7 +54,7 @@ const packetGeometry=new THREE.BufferGeometry();packetGeometry.setAttribute('pos
 const packet=new THREE.Points(packetGeometry,new THREE.PointsMaterial({color:'#b4f9f0',size:.07,transparent:true,opacity:0,depthWrite:false}));scene.add(packet);
 const label=document.getElementById('planet-label'),modeLabel=document.getElementById('environment-summary');
 try {
-  renderer=new THREE.WebGLRenderer({alpha:true,antialias:false,powerPreference:'low-power',preserveDrawingBuffer:true});
+  renderer=new THREE.WebGLRenderer({alpha:true,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:false});
   renderer.setClearColor('#03060b',0);renderer.outputColorSpace=THREE.SRGBColorSpace;
   document.body.appendChild(renderer.domElement);
   solar=new SolarSystem(scene);
@@ -62,18 +65,21 @@ try {
     backdrop=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({map:texture,color:'#86949e',depthWrite:false}));
     backdrop.position.z=-120;backdrop.renderOrder=-1;backdrop.userData.aspect=texture.image.width/texture.image.height;
     scene.add(backdrop);document.body.dataset.asset='ready';resize();
-  },undefined,()=>{document.body.dataset.asset='fallback';});
+  },undefined,()=>{document.body.dataset.asset='fallback';if(state.visible&&!document.hidden)render(0);});
   renderer.domElement.addEventListener('webglcontextlost',event=>{
-    event.preventDefault();clearTimeout(timer);timer=null;document.body.dataset.error='context-lost';
+    event.preventDefault();cancelAnimationFrame(timer);timer=null;document.body.dataset.error='context-lost';
   });
   renderer.domElement.addEventListener('webglcontextrestored',()=>location.reload());
 } catch(error){document.body.dataset.error='webgl';}
 
+const forgeTransition=installForgeTransition({scene,camera,renderer,getState:()=>state});
 function resize() {
-  if(!renderer||disposed)return;
+  if(!renderer||disposed||innerWidth<1||innerHeight<1)return;
   const ratio=Math.min(devicePixelRatio,innerWidth>=2560?1:1.25)*quality;
-  renderer.setPixelRatio(ratio);material.uniforms.pixelRatio.value=ratio;
-  renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/Math.max(1,innerHeight);camera.updateProjectionMatrix();
+  if(renderRatio!==ratio){renderer.setPixelRatio(ratio);renderRatio=ratio;}
+  material.uniforms.pixelRatio.value=ratio;
+  if(renderWidth!==innerWidth||renderHeight!==innerHeight){renderer.setSize(innerWidth,innerHeight);renderWidth=innerWidth;renderHeight=innerHeight;}
+  camera.aspect=innerWidth/Math.max(1,innerHeight);camera.updateProjectionMatrix();
   if(backdrop) {
     const height=2*150*Math.tan(THREE.MathUtils.degToRad(camera.fov*.5));
     const cover=Math.max(height,height*camera.aspect/backdrop.userData.aspect)*1.04;
@@ -91,11 +97,13 @@ function monitor(now,active) {
   else {slowSince=fastSince=0;}
 }
 function render(dt) {
-  if(!renderer||disposed)return;
+  if(!renderer||disposed||innerWidth<1||innerHeight<1)return;
+  const context=renderer.getContext();
+  if(!context.drawingBufferWidth || !context.drawingBufferHeight)return;
+  if(forgeTransition.active)return;
   const reduced=state.motion==='reduced',rig=rigTarget(state);
-  camera.position.z=3+rig.distance;
-  camera.position.x=rig.distance*.07;camera.position.y=rig.distance*.015;
-  camera.lookAt(0,0,-22);camera.updateMatrixWorld();
+  const pose=observatoryCamera(state,window.ultronCameraState,camera.aspect);
+  camera.position.fromArray(pose.position);camera.lookAt(...pose.target);camera.updateMatrixWorld();
   if(!reduced)time+=dt;
   stars.rotation.y=Math.sin(time*.009)*.007;
   material.uniforms.time.value=time;
@@ -105,8 +113,8 @@ function render(dt) {
   if(backdrop)backdrop.material.color.setScalar(.25+ambient*.56);
   grid.material.opacity=gridVisibility;
   grid.visible=false;
-  network.material.opacity=state.mode==='analysis'?.3:state.mode==='execution'?.16:0;
-  network.visible=network.material.opacity>0;
+  network.material.opacity=0;
+  network.visible=false;
   const age=(Date.now()-(state.cue?.at||0))/1000;
   const pulse=state.cue?.kind!=='settle'&&age>=0&&age<.85 ? Math.sin(age/.85*Math.PI)*.15 : 0;
   signal.material.color.set(state.cue?.kind==='warning'?'#ff525e':'#67d6e4');
@@ -138,38 +146,44 @@ function render(dt) {
     flowGeometry.computeBoundingSphere();packetGeometry.computeBoundingSphere();
   }
   solar?.step(dt,state,camera);
-  stars.visible=!state.staging;technical.visible=!state.staging;
-  if(solar)solar.root.visible=solar.root.visible&&!state.staging;
+  stars.visible=true;technical.visible=true;
+  if(solar)solar.root.visible=solar.root.visible&&!window.ultronActive;
   scene.updateMatrixWorld(true);
   renderer.render(scene,camera);frames++;
   const p=solar?.label;
   if(label) {
     label.hidden=!p?.visible;
     if(p?.visible) {
-      label.querySelector('strong').textContent=p.name;
+      if(label.dataset.planet!==p.id)fillPlanetFacts(label,p.id);
       const x=clamp(Math.round(p.x*innerWidth),16,Math.max(16,innerWidth-label.offsetWidth-16));
       const y=clamp(Math.round((p.y+.13)*innerHeight),90,Math.max(90,innerHeight-label.offsetHeight-16));
       label.style.transform=`translate(${x}px,${y}px)`;
     }
   }
   if(modeLabel)modeLabel.textContent=state.mode==='exploration' ? 'Exploração do sistema solar. Representação artística, sem escala astronômica.' : '';
-  document.body.dataset.ready='true';document.body.dataset.frames=String(frames);
+  const assetsSettled=Boolean(document.body.dataset.asset)&&solar?.pendingMaps===0;
+  const ultronSettled=Boolean(window.ultronDiagnostics?.().frames>0);
+  if(state.staging&&document.body.dataset.ultronError)document.body.dataset.error='ultron-unavailable';
+  if(assetsSettled&&ultronSettled&&!document.body.dataset.error)document.body.dataset.ready='true';
+  document.body.dataset.frames=String(frames);
   document.body.dataset.mode=state.mode;document.body.dataset.phase=state.phase;
   document.body.dataset.travel=String(rig.distance.toFixed(3));
 }
-function tick() {
-  clearTimeout(timer);timer=null;
+function tick(now=performance.now(),force=false) {
+  cancelAnimationFrame(timer);timer=null;
   if(!renderer||disposed||!state.visible||document.hidden)return;
-  const now=performance.now(),dt=last?Math.min(.1,(now-last)/1000):0;last=now;
-  render(dt);
-  const travelling=rigTarget(state).distance>.001;
-  monitor(now,travelling||frameBudget(state,travelling)===16);
+  const travelling=(!state.staging&&rigTarget(state).distance>.001)||observatoryCamera(state,window.ultronCameraState,camera.aspect).moving;
   const delay=frameBudget(state,travelling);
-  if(delay)timer=setTimeout(tick,delay);else last=0;
+  if(!force&&!travelling&&delay&&last&&now-last<delay-1){timer=requestAnimationFrame(tick);return;}
+  const dt=last?Math.min(.1,(now-last)/1000):0;last=now;
+  render(dt);
+  monitor(now,travelling||frameBudget(state,travelling)===16);
+  if(delay)timer=requestAnimationFrame(tick);else last=0;
 }
 window.updateCore=value=>{
   const previous=state;state={...state,...value};
-  if(!state.visible){clearTimeout(timer);timer=null;last=0;return;}
+  window.ultronHost?.(state);
+  if(!state.visible){cancelAnimationFrame(timer);timer=null;last=0;return;}
   if(state.motion==='reduced'||!previous.visible||previous.motion!==state.motion){last=0;tick();}
   else if(!timer)tick();
 };
@@ -179,12 +193,16 @@ window.spaceDiagnostics=()=>({frames,stars:positions.length/3,mode:state.mode,ph
   textures:renderer?.info.memory.textures||0,lights:2,fps:Number(fps.toFixed(1)),quality,
   orbitTime:solar?.elapsed||0,visible:state.visible,motion:state.motion,scheduled:Boolean(timer),
   surfaceMaps:solar?.maps||{}, solarVisibility:solar?.visibility||0, gridOpacity:grid.material.opacity,networkOpacity:network.material.opacity,
+  staging:Boolean(state.staging),pendingMaps:solar?.pendingMaps,solarVisible:solar?.root.visible,
+  scheduler:'animation-frame',
   budget:{drawCalls:32,lights:2},
   planets:solar?[...solar.nodes.keys()]:[]});
 addEventListener('resize',resize);
-document.addEventListener('visibilitychange',()=>{clearTimeout(timer);timer=null;last=0;if(!document.hidden)tick();});
+addEventListener('ultron-ready',()=>{if(state.visible&&!document.hidden)render(0);});
+addEventListener('ultron-camera',()=>{if(state.visible&&!document.hidden)tick();});
+document.addEventListener('visibilitychange',()=>{cancelAnimationFrame(timer);timer=null;last=0;if(!document.hidden)tick();});
 addEventListener('pagehide',()=>{
-  disposed=true;clearTimeout(timer);solar?.dispose(scene);
+  disposed=true;cancelAnimationFrame(timer);solar?.dispose(scene);
   const geometries=new Set(),materials=new Set();scene.traverse(node=>{if(node.geometry)geometries.add(node.geometry);if(node.material)materials.add(node.material);});
   geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());renderer?.dispose();
 });

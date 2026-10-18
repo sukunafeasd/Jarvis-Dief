@@ -37,7 +37,7 @@ class ContextTenthAudit(unittest.IsolatedAsyncioTestCase):
                 assistant._turn_done_event.set()
         assistant.session.send_client_content=AsyncMock(side_effect=complete)
         package={'data':{'tasks':{'count':2}},'unavailable':[]}
-        with patch('core.session_refresh.collect_updates',new=AsyncMock(return_value=package)),patch('core.daily_briefing.mark_delivered'):
+        with patch('core.fish_audio.selected',return_value=False),patch('core.session_refresh.collect_updates',new=AsyncMock(return_value=package)),patch('core.daily_briefing.mark_delivered'):
             await assistant._send_startup_briefing()
         self.assertEqual(assistant._day_context,package)
         self.assertFalse(any(call.args[0]['kind']=='tasks' for call in assistant.ui.show_manifestation.call_args_list))

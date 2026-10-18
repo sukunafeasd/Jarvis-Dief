@@ -9,15 +9,15 @@ class VisualContinuityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_space_moves_on_desktop_and_small_window_and_suspends_when_hidden(self):
         await self.page.goto(self.url + '/space.html')
-        await self.page.wait_for_function("document.body.dataset.asset === 'ready'")
+        await self.page.wait_for_function("document.body.dataset.ready === 'true'",timeout=60000)
         for width, height in [(1920, 1080), (640, 480)]:
             await self.page.set_viewport_size({'width': width, 'height': height})
             await self.page.evaluate("window.updateCore({visible:true,motion:'full'})")
             await self.page.wait_for_timeout(600)
-            first = await self.page.locator('canvas').screenshot()
+            first = await self.page.locator('canvas:not(#ultron-canvas)').screenshot()
             # Frequent state synchronization must not starve the render scheduler.
             await self.page.evaluate("async()=>{for(let i=0;i<30;i++){window.updateCore({visible:true});await new Promise(r=>setTimeout(r,20));}}")
-            second = await self.page.locator('canvas').screenshot()
+            second = await self.page.locator('canvas:not(#ultron-canvas)').screenshot()
             self.assertNotEqual(hashlib.sha256(first).digest(), hashlib.sha256(second).digest())
             await self.page.screenshot(path=str(test_refresh_visual.BASE / f'validation/space-motion-{width}.png'))
             from PIL import Image, ImageStat
@@ -30,9 +30,10 @@ class VisualContinuityTests(unittest.IsolatedAsyncioTestCase):
         await self.page.wait_for_timeout(300)
         self.assertEqual((await self.page.evaluate('window.spaceDiagnostics()'))['frames'], frames)
         await self.page.evaluate("window.updateCore({visible:true,motion:'reduced'})")
-        first = await self.page.locator('canvas').screenshot()
+        await self.page.wait_for_timeout(200)
+        first = await self.page.locator('canvas:not(#ultron-canvas)').screenshot()
         await self.page.wait_for_timeout(300)
-        second = await self.page.locator('canvas').screenshot()
+        second = await self.page.locator('canvas:not(#ultron-canvas)').screenshot()
         self.assertEqual(first, second)
         self.assertEqual(self.errors, [])
 

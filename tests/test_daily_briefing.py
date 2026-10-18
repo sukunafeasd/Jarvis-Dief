@@ -10,7 +10,7 @@ from core import daily_briefing
 
 
 class DailyStateTests(unittest.TestCase):
-    def test_greeting_has_cooldown_and_long_absence_refreshes(self):
+    def test_greeting_and_absence_do_not_repeat_delivered_summary(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(daily_briefing,'STATE_FILE',Path(folder)/'state.json'):
             now = datetime(2026,10,11,14,0)
             record = {'date':now.date().isoformat(),'updated_at':(now-timedelta(minutes=5)).isoformat(),'last_contact':(now-timedelta(hours=5)).isoformat()}
@@ -18,11 +18,12 @@ class DailyStateTests(unittest.TestCase):
             self.assertFalse(daily_briefing.refresh_due('bom dia jarvis',now))
             record['updated_at']=(now-timedelta(hours=5)).isoformat()
             daily_briefing.STATE_FILE.write_text(json.dumps(record))
-            self.assertTrue(daily_briefing.refresh_due('oi',now))
+            self.assertFalse(daily_briefing.refresh_due('oi',now))
             record['last_contact']=(now-timedelta(minutes=1)).isoformat()
             daily_briefing.STATE_FILE.write_text(json.dumps(record))
             self.assertFalse(daily_briefing.refresh_due('oi',now))
-            self.assertTrue(daily_briefing.refresh_due('bom dia jarvis',now))
+            self.assertFalse(daily_briefing.refresh_due('bom dia jarvis',now))
+            self.assertTrue(daily_briefing.refresh_due('se atualiza do dia',now))
     def test_delivery_survives_restart_and_expires_next_day(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(daily_briefing, "STATE_FILE", Path(folder)/"state.json"):
             self.assertFalse(daily_briefing.delivered_today())
@@ -35,6 +36,15 @@ class DailyStateTests(unittest.TestCase):
 
 
 class DailyContactTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.folder=tempfile.TemporaryDirectory()
+        self.state=patch.object(daily_briefing,'STATE_FILE',Path(self.folder.name)/'day.json')
+        self.state.start()
+
+    async def asyncTearDown(self):
+        self.state.stop()
+        self.folder.cleanup()
+
     async def test_cancelled_daily_summary_does_not_restart_on_greeting(self):
         from main import JarvisLive
         assistant=JarvisLive.__new__(JarvisLive)

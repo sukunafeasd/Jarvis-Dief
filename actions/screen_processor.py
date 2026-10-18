@@ -42,7 +42,7 @@ def _base_dir() -> Path:
 
 
 _BASE        = _base_dir()
-_CONFIG_PATH = _BASE / "config" / "api_keys.json"
+from memory.config_manager import CONFIG_FILE as _CONFIG_PATH
 
 
 def _load_config() -> dict:

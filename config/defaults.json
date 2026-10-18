@@ -1,6 +1,7 @@
 {
   "assistant_name": "DIEF JARVIS",
   "language": "pt-BR",
+  "speech_provider": "fish_audio",
   "voice_name": "Puck",
   "hud_style": "core",
   "ui_color": "#ffa500",
@@ -10,6 +11,7 @@
   "news_count": 3,
   "presentation_hold": 15,
   "reduce_motion": false,
+  "panel_sounds_muted": false,
   "morning_brief_enabled": true,
   "push_to_talk_enabled": false,
   "wake_word_enabled": false,

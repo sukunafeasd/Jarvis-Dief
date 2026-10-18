@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FORJA</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./forja.css">
+  <script type="importmap">{"imports":{"three":"./vendor/package/build/three.module.js"}}</script>
+</head>
+<body>
+  <main id="forgeScene">
+    <canvas id="entranceLight" aria-hidden="true"></canvas>
+    <aside class="forge-panel" id="forgePanel" inert aria-label="Atividade FORJA">
+      <div class="panel-header"><span class="panel-title">Atividade JARVIS</span><span class="panel-status-dot"></span></div>
+      <div class="model-indicator"><div class="model-label">Motor de IA</div><div class="model-value" id="modelStatus">Aguardando conexao</div></div>
+      <div id="projectName"></div>
+      <div class="steps-container" id="stepsContainer" role="log" aria-label="Atividades"></div>
+      <p class="empty-state" id="emptyState">Aguardando primeira criação...</p>
+      <form id="promptForm"><label class="sr-only" for="forgePrompt">Pedido para Jarvis</label><textarea id="forgePrompt" rows="2" placeholder="O que deseja criar?"></textarea></form>
+    </aside>
+    <section id="creationArea" aria-label="Previa da criacao"></section>
+    <div id="exitLight" aria-hidden="true"></div>
+  </main>
+  <script type="module" src="./forja.mjs"></script>
+</body>
+</html>

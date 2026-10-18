@@ -25,6 +25,8 @@ class EnvironmentUITests(unittest.TestCase):
         self.assertFalse(self.command('environment','raw GLSL')['ok'])
 
     def test_shared_payload_reading_rest_and_cancellation(self):
+        self.window._on_setup_done('synthetic-environment-test','windows')
+        self.window._ensure_space()
         space = MagicMock();space.failed=False
         self.window._space_view = space
         core = MagicMock();core.failed=False

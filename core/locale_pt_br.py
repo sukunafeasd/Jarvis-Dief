@@ -5,6 +5,11 @@ STATES={'idle':'Em repouso','sleeping':'Em repouso','resting':'Em repouso','list
     'connecting':'Conectando','disconnected':'Desconectado','connected':'Conectado'}
 VISUALS={'face':'Rosto','core':'Núcleo'}
 TOOLS={'desktop_accessibility':'Controle de aplicativos','gmail_control':'Gmail',
+    'skill_library':'Biblioteca de skills','playwright_mcp':'Playwright · navegador',
+    'windows_mcp':'Windows · controles MCP','github_mcp':'GitHub','context7':'Context7 · documentacao',
+    'markitdown':'Leitura MarkItDown','qdrant_memory':'Memoria semantica',
+    'deep_research':'Pesquisa aprofundada','local_transcription':'Transcricao local','fish_audio':'Voz Fish Audio',
+    'planet_knowledge':'Planetas e astronomia',
     'google_calendar':'Google Agenda','google_drive':'Google Drive','spotify_control':'Spotify',
     'document_reader':'Documentos e anexos','personal_routines':'Rotinas pessoais','structured_browser':'Navegação estruturada',
     'whatsapp_web':'WhatsApp Web','app_control':'Aplicativos','send_message':'Enviar mensagem',

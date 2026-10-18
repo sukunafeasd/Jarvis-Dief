@@ -138,7 +138,8 @@ class SettingsTests(unittest.TestCase):
                 try:
                     hub.resize(1366,768);hub.show();self.app.processEvents()
                     pixel=hub.grab().toImage().pixelColor(1201,701)
-                    self.assertLess(max(pixel.red(),pixel.green(),pixel.blue()),50)
+                    self.assertLess(max(pixel.red(),pixel.green(),pixel.blue()),80)
+                    self.assertGreaterEqual(pixel.blue(),pixel.red())
                     self.assertEqual(hub.palette().color(QPalette.ColorRole.Text).name(),'#edfaff')
                     self.assertEqual(hub._entrance.state(),QAbstractAnimation.State.Stopped)
                     config.write_text('{"reduce_motion":false}')

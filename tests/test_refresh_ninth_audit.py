@@ -24,15 +24,16 @@ class RefreshPolicyAudit(unittest.TestCase):
 
 
 class RefreshBackendAudit(unittest.IsolatedAsyncioTestCase):
-    async def test_early_contact_does_not_cancel_first_opening_refresh(self):
+    async def test_early_contact_does_not_start_an_unsolicited_opening_summary(self):
         from main import JarvisLive
         assistant=JarvisLive.__new__(JarvisLive)
         assistant.session=Mock();assistant._manual_rest=False
+        assistant._is_speaking=False
         assistant._application_context=Mock(user_text='Abre o aplicativo')
         assistant._queue_daily_briefing=Mock(return_value=True)
         with patch('main.asyncio.sleep',new=AsyncMock()):
             await assistant._opening_greeting()
-        assistant._queue_daily_briefing.assert_called_once_with(startup=True,wait_for_turn=True)
+        assistant._queue_daily_briefing.assert_not_called()
 
     async def test_manual_request_works_when_automatic_summary_is_disabled(self):
         from main import JarvisLive
@@ -43,15 +44,15 @@ class RefreshBackendAudit(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(assistant._queue_daily_briefing(wait_for_turn=False))
             await assistant._daily_briefing_task
 
-    async def test_startup_does_not_require_user_greeting(self):
+    async def test_startup_alone_never_starts_daily_summary(self):
         from main import JarvisLive
         assistant=JarvisLive.__new__(JarvisLive)
         assistant._application_context=Mock(user_text='');assistant._manual_rest=False
         assistant._daily_briefing_task=None;assistant._daily_briefing_after_contact=AsyncMock();assistant.ui=Mock()
         with patch('main.get_brief_enabled',return_value=True),patch.object(daily_briefing,'record_contact'),patch.object(daily_briefing,'delivered_today',return_value=False):
-            self.assertTrue(assistant._queue_daily_briefing(startup=True,wait_for_turn=False))
-            await assistant._daily_briefing_task
-            assistant._daily_briefing_after_contact.assert_awaited_once_with(False)
+            self.assertFalse(assistant._queue_daily_briefing(startup=True,wait_for_turn=False))
+            self.assertIsNone(assistant._daily_briefing_task)
+            assistant._daily_briefing_after_contact.assert_not_awaited()
 
     async def test_no_audio_never_marks_summary_delivered(self):
         from main import JarvisLive
@@ -79,8 +80,9 @@ class RefreshPanelAudit(unittest.TestCase):
     def test_unrelated_data_cannot_remove_refresh(self):
         self.begin()
         self.window._show_manifestation({'kind':'weather','temperature':19})
-        self.assertEqual(self.window._presentation['model']['id'],'transaction-1')
-        self.assertTrue(self.window._content_panel.isVisible())
+        self.assertEqual(self.window._daily_refresh_view.transaction,'transaction-1')
+        self.assertTrue(self.window._daily_refresh_view.isVisible())
+        self.assertFalse(self.window._content_panel.isVisible())
 
     def test_owned_chapter_can_follow_collection(self):
         self.begin()
@@ -88,6 +90,15 @@ class RefreshPanelAudit(unittest.TestCase):
         self.assertEqual(self.window._presentation['model']['kind'],'tasks')
         self.window._show_manifestation({'kind':'status-end','id':'transaction-1'})
         self.assertIsNone(self.window._refresh_lock)
+
+    def test_refresh_retires_previous_subject_without_removing_pins(self):
+        self.window._show_manifestation({'kind':'weather','temperature':19})
+        previous=self.window._presentation
+        self.begin()
+        self.assertIsNone(self.window._presentation)
+        self.assertFalse(self.window._content_panel.isVisible())
+        self.assertIn(previous,self.window._presentation_history)
+        self.assertTrue(self.window._daily_refresh_view.isVisible())
 
     def test_old_end_cannot_close_or_expire_new_refresh(self):
         self.begin()
@@ -116,8 +127,17 @@ class RefreshVisualAudit(unittest.IsolatedAsyncioTestCase):
         await self.page.evaluate('m=>window.updateCore(m)',model)
         self.assertEqual(await self.page.locator('[role=progressbar]').get_attribute('aria-valuenow'),'100')
         await self.page.wait_for_timeout(250)
-        self.assertIn('data:image',await self.page.evaluate('getComputedStyle(document.body).backgroundImage'))
-        await self.page.screenshot(path=str(test_refresh_visual.BASE/'validation/daily-refresh-card.png'))
+        background=await self.page.evaluate('getComputedStyle(document.body).backgroundImage')
+        self.assertIn('linear-gradient(',background)
+        self.assertIn(self.url+'/assets/deep-space.png',background)
+        texture=await self.page.evaluate('''async () => {
+            const image=new Image(); image.src='./assets/deep-space.png';
+            await image.decode(); return {width:image.naturalWidth,height:image.naturalHeight};
+        }''')
+        self.assertGreater(texture['width'],0)
+        self.assertGreater(texture['height'],0)
+        with tempfile.TemporaryDirectory(prefix='dief-refresh-visual-') as folder:
+            await self.page.screenshot(path=str(Path(folder)/'daily-refresh-card.png'))
         self.assertEqual(self.errors,[])
 
 
@@ -130,12 +150,15 @@ class SoundAudit(unittest.TestCase):
             self.assertLessEqual(len(data),22050*12 if name=='ambient' else 22050)
             self.assertEqual(len(data)%2,0)
 
-    def test_effects_are_ducked_and_rate_limited(self):
+    def test_effects_do_not_overlap_voice_and_are_rate_limited_afterward(self):
         from core.ui_sounds import SoundDirector
         director=SoundDirector(None);director.enabled=True
         effect=Mock();effect.isPlaying.return_value=False
         director.effects={'click':effect}
         director.voice(True)
+        self.assertFalse(director.play('click'))
+        effect.play.assert_not_called()
+        effect.stop.assert_called()
+        director.voice(False)
         self.assertTrue(director.play('click'))
-        effect.setVolume.assert_called_with(.055)
         self.assertFalse(director.play('click'))

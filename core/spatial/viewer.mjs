@@ -4,8 +4,11 @@ import { coreProfile } from './core-profiles.mjs';
 import { addCoreSurfaces } from './core-surface.mjs';
 import { createCoreMotion } from './core-motion.mjs';
 import { NewsCoreProjection } from './news-core.mjs';
-import {entranceDistance} from './environment-rig.mjs';
+import {sceneDistance} from './environment-rig.mjs';
+import {installForgeTransition} from './forge-transition.mjs';
+import {NeuralForm} from './neural/form.mjs';
 let news = null,framesRendered=0;
+let neural=null,neuralWarmTimer=null,reducedNeuralTimer=null;
 
 const staged=new URLSearchParams(location.search).get('staged')==='1';
 let state = { phase: "idle", level: 0, color: "#ff303b", visible: true },environment={staging:staged};
@@ -14,8 +17,8 @@ try {
   renderer = new THREE.WebGLRenderer({
     alpha: true,
     antialias: true,
-    powerPreference: "default",
-    preserveDrawingBuffer: !staged,
+    powerPreference: "high-performance",
+    preserveDrawingBuffer: false,
   });
   renderer.setPixelRatio(Math.min(devicePixelRatio, innerWidth>=2560?1:1.5));
   renderer.setClearColor("#00060a",0);
@@ -36,6 +39,7 @@ const core = buildCore("cyan", false);
 const surfaces=addCoreSurfaces(core);
 const motion=createCoreMotion(core,surfaces);
 scene.add(core.root);
+const forgeTransition=installForgeTransition({scene,camera,renderer,core,getState:()=>state});
 let appliedColor = "",
   previous = performance.now(),
   time = 0,
@@ -45,6 +49,7 @@ let appliedColor = "",
 let pointerStart = null,
   gestureSerial = 0,
   touchUntil = 0;
+let renderWidth=0,renderHeight=0;
 renderer.domElement.style.touchAction = "none";
 renderer.domElement.style.cursor = "grab";
 const raycaster = new THREE.Raycaster();
@@ -85,11 +90,15 @@ core.root.traverse(node => {
     materialOpacities.set(node.material, node.material.opacity);
 });
 function resize() {
-  renderer.setSize(innerWidth, innerHeight);
+  if(innerWidth<1 || innerHeight<1)return;
+  if(renderWidth!==innerWidth||renderHeight!==innerHeight){
+    renderer.setSize(innerWidth, innerHeight);renderWidth=innerWidth;renderHeight=innerHeight;
+  }
   camera.aspect = innerWidth / Math.max(1, innerHeight);
   camera.userData.baseDistance=Math.max(7.7,2.35/(Math.tan(THREE.MathUtils.degToRad(camera.fov*.5))*camera.aspect));
-  camera.position.z=camera.userData.baseDistance+entranceDistance(environment.entrance,Date.now(),state.motion==='reduced');
+  camera.position.z=camera.userData.baseDistance+sceneDistance(environment,Date.now(),state.motion==='reduced');
   camera.updateProjectionMatrix();
+  if(renderWidth&&materialOpacities.size)frame(performance.now(),true);
 }
 addEventListener("resize", resize);
 resize();
@@ -117,15 +126,28 @@ function recolor(color) {
     }
   });
 }
-function frame() {
+function frame(now=performance.now(),force=false) {
+  clearTimeout(reducedNeuralTimer);reducedNeuralTimer=null;
+  cancelAnimationFrame(timer);
   timer=null;
-  const now = performance.now(),
-    dt = Math.min(0.1, (now - previous) / 1000);
+  if(innerWidth<1 || innerHeight<1)return;
+  const travelling=!environment.staging&&sceneDistance(environment,Date.now(),state.motion==='reduced')>.001;
+  const interval=travelling||neural?.lifecycle.active||!['idle','sleeping'].includes(state.phase)?1000/60:50;
+  if(!force&&!travelling&&state.motion!=='reduced'&&now-previous<interval-1){
+    if(state.visible&&!document.hidden)timer=requestAnimationFrame(frame);
+    return;
+  }
+  const elapsed=Math.max(0,(now-previous)/1000);
+  const dt = Math.min(0.1,elapsed);
   previous = now;
   if (state.visible && !document.hidden) {
-    core.root.visible=!environment.staging;
-    camera.position.z=camera.userData.baseDistance+entranceDistance(environment.entrance,Date.now(),state.motion==='reduced');
+    const context=renderer.getContext();
+    if(!context.drawingBufferWidth || !context.drawingBufferHeight){timer=requestAnimationFrame(frame);return;}
+    if(forgeTransition.active){timer=requestAnimationFrame(frame);return;}
+    core.root.visible=true;
+    camera.position.z=camera.userData.baseDistance+sceneDistance(environment,Date.now(),state.motion==='reduced')+(neural?.lifecycle.progress||0)*1.6;
     camera.updateMatrixWorld();
+    neural?.restore();
     const profile = motion.step(dt,{...state,environmentMode:environment.mode});
     restVisibility=profile.rest;time=profile.time;level=profile.level;
     materialOpacities.forEach((opacity, material) => {
@@ -144,7 +166,9 @@ function frame() {
     if (news?.step(dt, state)) {
       news.dispose();news=null;state.newsFusion=false;
     }
-    renderer.render(scene, camera);
+    neural?.step(dt,state,camera,elapsed,appliedColor);
+    if(neural?.lifecycle.progress>.01)neural.render(camera);
+    else renderer.render(scene, camera);
     framesRendered++;
     document.body.dataset.phase = state.phase;
     document.body.dataset.drawCalls = renderer.info.render.calls;
@@ -157,30 +181,29 @@ function frame() {
     document.body.dataset.textures=renderer.info.memory.textures;
     document.body.dataset.motion=state.motion||'full';
   }
-  if(!state.visible||document.hidden||state.motion==='reduced')return;
-  timer = setTimeout(
-    frame,
-    state.visible && !document.hidden
-      ? state.phase === "idle" || state.resting
-        ? 50
-        : 16
-      : 250,
-  );
+  if(!state.visible||document.hidden)return;
+  if(state.motion==='reduced'){
+    // Lifecycle deadlines still advance without a continuous animation loop.
+    if(neural?.lifecycle.active)reducedNeuralTimer=setTimeout(()=>frame(performance.now(),true),250);
+    return;
+  }
+  timer = requestAnimationFrame(frame);
 }
 let lastUpdate='';
 window.updateCore = (value) => {
   const signature=JSON.stringify(value);if(signature===lastUpdate)return;lastUpdate=signature;
   state = { ...state, ...value };
-  if(!state.visible){clearTimeout(timer);timer=null;return;}
-  if(state.motion==='reduced'){clearTimeout(timer);frame();return;}
-  if(timer===null)timer=setTimeout(frame,0);
+  if(!state.visible){cancelAnimationFrame(timer);timer=null;clearTimeout(reducedNeuralTimer);reducedNeuralTimer=null;return;}
+  if(state.motion==='reduced'){frame(performance.now(),true);return;}
+  if(timer===null)timer=requestAnimationFrame(frame);
 };
 window.updateEnvironment=value=>{
   const entering=environment.staging && value.staging===false;
   environment={...environment,...value};
-  if(state.visible&&!document.hidden&&(entering||state.motion==='reduced')){clearTimeout(timer);frame();}
+  if(state.visible&&!document.hidden&&(entering||state.motion==='reduced'))frame(performance.now(),true);
 };
 window.updateNewsCore = value => {
+  if(value?.items?.length)neural?.cancel();
   if (!value || !Array.isArray(value.items) || !value.items.length) {
     news?.dispose();news=null;state.newsFusion=false;
   } else if (value.mode !== 'front' || news) {
@@ -188,19 +211,41 @@ window.updateNewsCore = value => {
     news.invalidate=()=>{if(state.visible&&!document.hidden&&state.motion==='reduced')frame();};
     news.update(value);state.newsFusion=true;
   }
-  clearTimeout(timer);timer=null;
-  if(state.visible&&!document.hidden)frame();
+  cancelAnimationFrame(timer);timer=null;
+  if(state.visible&&!document.hidden)frame(performance.now(),true);
 };
 window.newsCoreDiagnostics=()=>news?.diagnostics() || {phase:'inactive',rows:0,images:0};
-document.addEventListener('visibilitychange',()=>{clearTimeout(timer);if(!document.hidden&&state.visible){previous=performance.now();frame();}});
-window.hologramDiagnostics=()=>({framesRendered,coreVisible:core.root.visible,phase:motion.state.phase,energy:motion.state.energy,level:motion.state.level,
+window.updateNeuralMemory=payload=>{
+  if(payload?.active||payload?.pending){neural ||= new NeuralForm(scene,core,renderer);news?.dispose();news=null;}
+  neural?.update(payload);
+  if(state.visible&&!document.hidden){previous=performance.now();frame(previous,true);}
+};
+window.cancelNeuralMemory=()=>{neural?.cancel();if(state.visible&&!document.hidden)frame(performance.now(),true);};
+window.narrateNeuralMemory=text=>neural?.narrate(text);
+window.neuralMemoryDiagnostics=()=>({active:neural?.lifecycle.active||false,requestId:neural?.lifecycle.lastRequestId||null,progress:neural?.lifecycle.progress||0,items:neural?.lifecycle.items.length||0,awaitingTopic:neural?.lifecycle.awaitingTopic||false,outcome:neural?.lifecycle.outcome||null,voice:neural?.uniforms.uVoice.value||0,focus:neural?.focus??-1,cortexAlignment:neural?.cortexAlignment||0,deformedSurfaces:neural?.deformedSurfaces||0});
+function prepareNeuralWhenIdle(){
+  neuralWarmTimer=null;
+  if(neural)return;
+  if(environment.staging||document.hidden||!state.visible||forgeTransition.active||sceneDistance(environment,Date.now(),state.motion==='reduced')>.01||!['idle','listening'].includes(state.phase)){
+    neuralWarmTimer=setTimeout(prepareNeuralWhenIdle,1500);return;
+  }
+  // Allocate and compile after arrival, not while the first memory is being spoken.
+  neural=new NeuralForm(scene,core,renderer);
+  previous=performance.now();frame(previous,true);
+}
+document.addEventListener('visibilitychange',()=>{cancelAnimationFrame(timer);timer=null;clearTimeout(reducedNeuralTimer);reducedNeuralTimer=null;if(!document.hidden&&state.visible){previous=performance.now();frame(performance.now(),true);}});
+window.hologramDiagnostics=()=>({framesRendered,camera:camera.position.toArray(),staging:Boolean(environment.staging),coreVisible:core.root.visible,phase:motion.state.phase,energy:motion.state.energy,level:motion.state.level,
   assembly:motion.state.assembly,drawCalls:renderer.info.render.calls,geometries:renderer.info.memory.geometries,
   textures:renderer.info.memory.textures,visible:state.visible,projection:!!state.projection,
   palette:{structure:surfaces.membrane.material.uniforms.tint.value.getHexString(),heart:core.energySurface.material.uniforms.tint.value.getHexString()},
   nodes:surfaces.nodes.count,orbit:core.orbit.rotation.y,cue:motion.state.cue,cueActive:motion.state.cueTime>0,
-  environmentMode:environment.mode||'assistant',travel:entranceDistance(environment.entrance,Date.now(),state.motion==='reduced')});
+  scheduler:'animation-frame',cameraActive:!environment.staging&&sceneDistance(environment,Date.now(),state.motion==='reduced')>.001,
+  environmentMode:environment.mode||'assistant',travel:sceneDistance(environment,Date.now(),state.motion==='reduced')});
 addEventListener("pagehide", () => {
-  clearTimeout(timer);
+  clearTimeout(neuralWarmTimer);
+  clearTimeout(reducedNeuralTimer);
+  cancelAnimationFrame(timer);
+  neural?.dispose();neural=null;
   news?.dispose();news=null;
   const geometries = new Set(),
     materials = new Set();
@@ -214,12 +259,12 @@ addEventListener("pagehide", () => {
   core.texture.dispose();
   renderer.dispose();
 });
-// Compile/upload while the native distant hub covers the loading surface.
-if(staged) {
+// Prepare the real distant core before the host reveals the completed scene.
+if(staged && innerWidth>0 && innerHeight>0 && renderer.getContext().drawingBufferWidth && renderer.getContext().drawingBufferHeight) {
   camera.position.z=camera.userData.baseDistance+24;
   motion.step(0,{...state,motion:'reduced'});
   renderer.render(scene,camera);
-  renderer.clear();
   motion.state.assembly=1;
 }
 frame();
+neuralWarmTimer=setTimeout(prepareNeuralWhenIdle,5000);

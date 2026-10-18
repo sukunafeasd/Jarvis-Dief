@@ -157,12 +157,17 @@ def calendar(parameters):
     if action=='list':
         args={'calendarId':calendar_id,'maxResults':max(1,min(100,int(parameters.get('limit',20)))),
               'singleEvents':True,'orderBy':'startTime','timeMin':parameters.get('date_from') or datetime.now(timezone.utc).isoformat()}
+        include_birthdays = parameters.get('include_birthdays') is True
+        if not include_birthdays:
+            args['eventTypes'] = ['default','focusTime','fromGmail','outOfOffice','workingLocation']
         for key,dest in (('date_to','timeMax'),('query','q'),('page_token','pageToken')):
             if parameters.get(key):args[dest]=parameters[key]
         for key in ('timeMin','timeMax'):
             if key in args and datetime.fromisoformat(args[key].replace('Z','+00:00')).tzinfo is None:
                 raise ValueError('Informe um horário ISO com fuso, por exemplo -03:00.')
         result=events.list(**args).execute();items=result.get('items',[])
+        if not include_birthdays:
+            items=[item for item in items if item.get('eventType') != 'birthday']
         return {'items':items,'next_page_token':result.get('nextPageToken',''),'complete':not bool(result.get('nextPageToken'))}
     if action=='read':return {'event':events.get(calendarId=calendar_id,eventId=identifier(parameters.get('event_id'))).execute()}
     if action=='delete':

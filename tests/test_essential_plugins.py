@@ -149,14 +149,18 @@ class DocumentTests(unittest.TestCase):
         from docx import Document
         from openpyxl import Workbook
         from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtGui import QPdfWriter,QPainter
+        from PyQt6.QtGui import QPdfWriter,QPainter,QFont,QFontDatabase
         app=QApplication.instance() or QApplication([])
+        # Offscreen Qt does not discover Windows fonts automatically.
+        QFontDatabase.addApplicationFont('C:/Windows/Fonts/segoeui.ttf')
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'arquivo.docx';doc=Document();doc.add_paragraph('Documento de teste');doc.save(path)
             self.assertIn('Documento de teste',documents.read({'path':str(path)})['text'])
             path=Path(folder)/'arquivo.xlsx';book=Workbook();book.active.append(['Matéria','Horas']);book.active.append(['Matemática',3]);book.save(path);book.close()
             self.assertIn('Matemática | 3',documents.read({'path':str(path)})['text'])
-            path=Path(folder)/'arquivo.pdf';writer=QPdfWriter(str(path));painter=QPainter(writer);painter.drawText(200,300,'Texto PDF verificavel');painter.end()
+            path=Path(folder)/'arquivo.pdf';writer=QPdfWriter(str(path));writer.setResolution(96)
+            painter=QPainter(writer);painter.setFont(QFont('Segoe UI',12));painter.drawText(40,80,'Texto PDF verificavel');painter.end()
+            del painter,writer
             self.assertIn('Texto PDF verificavel',documents.read({'path':str(path)})['text'])
 
     def test_download_names_cannot_traverse_or_overwrite(self):

@@ -16,6 +16,7 @@ class VoiceInterruptGate:
         self._partial=b''
         self._candidate=deque(maxlen=16)
         self._duration=0.
+        self._gap=0.
         self._latched=False
 
     @property
@@ -27,7 +28,7 @@ class VoiceInterruptGate:
         return max(.07,min(.20,self.noise_floor*2.6+.025))
 
     def reset(self):
-        self._partial=b'';self._candidate.clear();self._duration=0.;self._latched=False
+        self._partial=b'';self._candidate.clear();self._duration=0.;self._gap=0.;self._latched=False
 
     def _speech_fraction(self,pcm,sample_rate):
         if self.vad is None or sample_rate!=16000:return 0.
@@ -54,8 +55,12 @@ class VoiceInterruptGate:
         except Exception:
             self.reset();return None
         if level<self.threshold or not distinct_from_echo or speech<.66:
-            self._candidate.clear();self._duration=0.
+            # Preserve short unvoiced syllables without counting noise as speech.
+            self._gap+=len(pcm)/(sample_rate*2)
+            if self._candidate and self._gap<=.12:self._candidate.append(pcm)
+            else:self._candidate.clear();self._duration=0.
             return None
+        self._gap=0.
         self._candidate.append(pcm)
         self._duration+=len(pcm)/(sample_rate*2)
         required=max(.28,min(.85,max(1,required_blocks)*.064))

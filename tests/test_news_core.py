@@ -50,10 +50,11 @@ class NewsCoreVisualTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.evaluate('window.newsCoreDiagnostics().visible'),[0,1,2])
         self.assertIn('Nova descoberta',await self.page.locator('#core-news-summary').inner_text())
         await self.page.screenshot(path=str(OUTPUT/'fused-news.png'))
-        raw=await self.page.evaluate('document.querySelector("canvas").toDataURL()')
+        await self.page.evaluate("document.documentElement.style.background='transparent'")
+        raw=await self.page.locator('canvas').screenshot(omit_background=True)
         from io import BytesIO
         from PIL import Image
-        image=Image.open(BytesIO(base64.b64decode(raw.split(',')[1]))).convert('RGBA')
+        image=Image.open(BytesIO(raw)).convert('RGBA')
         self.assertGreater(sum(pixel[3]>80 for pixel in image.get_flattened_data()),10000)
         await self.page.evaluate('u=>{const f=document.createElement("iframe");f.id="front";f.src=u;f.style.cssText="position:absolute;inset:15%;width:70%;height:70%;border:0;background:transparent";document.body.append(f)}',self.url+'/presentation.html')
         await self.page.wait_for_function('typeof document.getElementById("front").contentWindow.updateCore === "function"')

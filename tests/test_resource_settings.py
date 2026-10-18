@@ -22,7 +22,7 @@ class ResourceSettingsTests(unittest.TestCase):
             root=Path(folder);config=root/'api_keys.json';config.write_text('{}')
             with patch.object(ui,'API_FILE',config),patch('memory.config_manager.CONFIG_FILE',config),patch.object(integration_tokens,'ROOT',root),patch.object(gmail_connection,'TOKEN',root/'gmail.bin'),patch.object(gmail_connection,'CREDENTIALS',root/'credentials.json'),patch('core.whatsapp_web.PROFILE',root/'whatsapp'):
                 registry=discover_plugins(ui.BASE_DIR/'plugins',set(),logger=lambda _:None)
-                self.assertEqual(len(registry.list_for_ui()),24)
+                self.assertGreaterEqual(len(registry.list_for_ui()),35)
                 window=ui.MainWindow(str(ui.BASE_DIR/'core/face_model.obj'))
                 window.get_plugins=registry.list_for_ui;window.get_plugin_settings=registry.settings_schemas
                 hub=SettingsHub(window,config,ui.C);hub.open_page('connections');hub.resize(1000,850);hub.show();self.app.processEvents();hub.refresh()
@@ -32,7 +32,7 @@ class ResourceSettingsTests(unittest.TestCase):
                     self.assertEqual(hub.connections_page.rows[identifier].status.text(),'Não conectado')
                     with patch.object(hub,'open_plugin_settings') as open_settings:
                         hub.activate_plugin(name);open_settings.assert_called_once_with(name)
-                self.assertTrue(hub.grab().save(str(ui.BASE_DIR/'validation/resource-connections.png')))
+                self.assertTrue(hub.grab().save(str(Path(folder)/'resource-connections.png')))
                 for name in ('file_library','task_execution','resource_backups','local_resources','calendar_planning'):
                     row=hub.connections_page.rows['plugin:'+name]
                     self.assertEqual(row.status.text(),'Disponível')

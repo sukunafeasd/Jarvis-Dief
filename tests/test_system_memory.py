@@ -137,6 +137,7 @@ class ConversationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         import main
         runner=main.JarvisLive.__new__(main.JarvisLive)
         runner.ui=Mock();runner._application_context=ApplicationContext()
+        runner._manual_rest=False;runner._is_speaking=False;runner.ui.muted=False
         response=main.types.FunctionResponse(id='1',name='teste',response={'result':{'ok':False,'error':'Sem controle'}})
         runner._execute_tool_body=AsyncMock(return_value=response)
         call=SimpleNamespace(id='1',name='teste',args={'action':'invoke'})

@@ -1,5 +1,6 @@
 """Read-only introspection of the assistant's own approved structure."""
 import json
+from datetime import datetime
 from core.system_knowledge import system_catalog,component_outline,execution_guide
 
 
@@ -21,7 +22,8 @@ def system_knowledge(parameters,player=None,available_tools=None,session_memory=
             if result.get('ok') is not True:return json.dumps(result,ensure_ascii=False)
             if session_memory:result['application_context']=session_memory.snapshot()
         else:raise ValueError('Ação desconhecida.')
-        return json.dumps({'ok':True,'result':result,'source':'Estrutura local do DIEF JARVIS'},ensure_ascii=False)
+        return json.dumps({'ok':True,'result':result,'observed_at':datetime.now().astimezone().isoformat(timespec='seconds'),
+            'clock_source':'system_local','source':'Estrutura local do DIEF JARVIS'},ensure_ascii=False)
     except (ValueError,TypeError,OSError,SyntaxError) as error:
         return json.dumps({'ok':False,'error':str(error)},ensure_ascii=False)
 

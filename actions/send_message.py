@@ -25,9 +25,8 @@ def _base_dir() -> Path:
 
 def _get_os() -> str:
     try:
-        cfg = json.loads(
-            (_base_dir() / "config" / "api_keys.json").read_text(encoding="utf-8")
-        )
+        from memory.config_manager import load_api_keys
+        cfg = load_api_keys()
         return cfg.get("os_system", "windows").lower()
     except Exception:
         return "windows"

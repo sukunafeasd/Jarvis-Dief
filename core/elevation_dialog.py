@@ -60,7 +60,7 @@ class ElevationDialog(QDialog):
         painter.fillRect(self.rect(),QColor(5,8,20,80))
         key=(self.width(),self.height(),min(1.5,self.devicePixelRatioF()))
         if key!=self._plate_key:self._plate_key=key;self._plate=glass_plate(*key)
-        painter.setOpacity(.65);painter.drawPixmap(0,0,self._plate);painter.setOpacity(1)
+        painter.drawPixmap(0,0,self._plate)
         center=self.hologram.geometry().center();cx,cy=center.x(),center.y();radius=min(100,self.hologram.height()*0.39)
         seconds=0 if self.motion_reduced else time.monotonic()-self.started
         paint_core(painter,QPointF(cx,cy),radius,seconds)

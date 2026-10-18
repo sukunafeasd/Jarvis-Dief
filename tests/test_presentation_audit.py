@@ -1,4 +1,4 @@
-import base64
+import json
 import unittest
 import test_refresh_visual
 from core.presentation_clock import PresentationClock
@@ -27,7 +27,7 @@ class PresentationAuditTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_image_cannot_appear_before_played_speech(self):
         await self.ready()
-        image='data:image/jpeg;base64,'+base64.b64encode((test_refresh_visual.BASE/'core/spatial/assets/moon-nasa.jpg').read_bytes()).decode()
+        image=json.loads((test_refresh_visual.BASE/'core/spatial/assets/moon-sss.json').read_text())['image']
         model={'kind':'news','title':'NOTÍCIAS','presentationId':'photo-gate','narrationDriven':True,'items':[{'title':'Imagem de validação','image':image}]}
         await self.page.evaluate('v=>window.updateCore(v)',model)
         await self.page.wait_for_timeout(800)
@@ -86,7 +86,7 @@ class PresentationAuditTests(unittest.IsolatedAsyncioTestCase):
         await self.page.evaluate("document.documentElement.style.background=\"#03070a url('./assets/deep-space.png') center/cover\"")
         output=test_refresh_visual.BASE/'validation/interface-audit'
         output.mkdir(parents=True,exist_ok=True)
-        image='data:image/jpeg;base64,'+base64.b64encode((test_refresh_visual.BASE/'core/spatial/assets/moon-nasa.jpg').read_bytes()).decode()
+        image=json.loads((test_refresh_visual.BASE/'core/spatial/assets/moon-sss.json').read_text())['image']
         model={'kind':'news','title':'NOTICIAS DE TESTE','presentationId':'conversation',
                'narrationDriven':True,'items':[{'title':'Pesquisa lunar','image':image}, {'title':'Exploracao espacial','image':image}]}
         await self.page.evaluate('v=>window.updateCore(v)',model)

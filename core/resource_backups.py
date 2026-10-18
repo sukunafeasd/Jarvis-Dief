@@ -3,12 +3,13 @@ import hashlib
 import json
 import sqlite3
 import zipfile
+from contextlib import closing
 from pathlib import Path
 from core.office_resources import write_new
 from core.resource_jobs import request
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('memory/long_term.json','memory/organizer.sqlite3','memory/resources.sqlite3','preferences.json')
+FILES=('memory/long_term.json','memory/personality.json','memory/conversations.sqlite3','memory/organizer.sqlite3','memory/resources.sqlite3','preferences.json')
 PROFILE_KEYS=('user_name','assistant_name','city','news_interests','news_count','morning_brief_enabled','hud_style','ui_color','reduce_motion','presentation_hold','voice_name')
 
 
@@ -24,12 +25,22 @@ def create(path):
                     if not isinstance(settings,dict):raise ValueError('Preferencias invalidas; nao gerei backup incompleto.')
                     data=json.dumps({key:settings[key] for key in PROFILE_KEYS if key in settings},ensure_ascii=False).encode('utf-8')
                     archive.writestr(name,data);manifest[name]=hashlib.sha256(data).hexdigest();continue
-                source=ROOT/name
+                if name=='memory/long_term.json':
+                    from memory.memory_manager import MEMORY_PATH
+                    source=MEMORY_PATH
+                elif name=='memory/personality.json':
+                    from core.personality import path as personality_path
+                    source=personality_path()
+                elif name=='memory/conversations.sqlite3':
+                    from core.conversation_memory import path as conversation_path
+                    source=conversation_path()
+                else:source=ROOT/name
                 if not source.is_file():continue
                 if source.stat().st_size>50*1024*1024:raise ValueError('Backup acima do limite por arquivo.')
                 if source.suffix=='.sqlite3':
                     snapshot=Path(folder)/source.name
-                    with sqlite3.connect(source) as original,sqlite3.connect(snapshot) as destination:original.backup(destination)
+                    with closing(sqlite3.connect(source.resolve().as_uri()+'?mode=ro',uri=True)) as original,closing(sqlite3.connect(snapshot)) as destination:
+                        original.backup(destination)
                     data=snapshot.read_bytes()
                 else:data=source.read_bytes();json.loads(data)
                 archive.writestr(name,data);manifest[name]=hashlib.sha256(data).hexdigest()

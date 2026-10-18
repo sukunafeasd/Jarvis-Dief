@@ -36,8 +36,7 @@ def _base_dir() -> Path:
 
 
 _BASE         = _base_dir()
-_CONFIG_PATH  = _BASE / "config" / "api_keys.json"
-_MEMORY_PATH  = _BASE / "memory" / "long_term.json"
+from memory.config_manager import CONFIG_FILE as _CONFIG_PATH
 
 def _load_config() -> dict:
     try:
@@ -146,10 +145,9 @@ def _random_data(data_type: str) -> str:
 def _user_profile() -> dict:
     """Read identity fields from long-term memory."""
     try:
-        if _MEMORY_PATH.exists():
-            data     = json.loads(_MEMORY_PATH.read_text(encoding="utf-8"))
-            identity = data.get("identity", {})
-            return {k: v.get("value", "") for k, v in identity.items()}
+        from memory.memory_manager import load_memory
+        identity=load_memory(strict=True).get('identity',{})
+        return {key:(value.get('value','') if isinstance(value,dict) else str(value)) for key,value in identity.items()}
     except Exception:
         pass
     return {}

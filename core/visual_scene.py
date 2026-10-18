@@ -49,6 +49,24 @@ class VisualSceneController(QObject):
     def reduced(self):
         return self._motion_reduced
 
+    def scene_visible(self):
+        window=self.window
+        forge=getattr(window,'_forge_controller',None)
+        ultron=getattr(window,'_ultron_payload',None)
+        mode_hidden=bool(forge and forge.active) or (
+            isinstance(ultron,dict) and ultron.get('state',{}).get('phase','idle')!='idle')
+        return not mode_hidden and not window._resting and window.isVisible() and not window.isMinimized()
+
+    def schedule_animation(self):
+        if (not self.scene_visible() or self.cancelled or self.clock.cancelled or self.clock.finished):
+            self.timer.stop();return
+        writing=any(item['revealed'] and item['chars']<len(item['text']) for item in self.items.values())
+        waiting=any(not item['revealed'] or item.get('focused_until') for item in self.items.values())
+        if not writing and not waiting:
+            self.timer.stop();return
+        interval=40 if writing else 500
+        if not self.timer.isActive() or self.timer.interval()!=interval:self.timer.start(interval)
+
     def font(self,item):
         font=QFont('Segoe UI',16 if item['role'] in ('titulo','valor') else 11)
         font.setBold(item['role'] in ('titulo','valor','pergunta'))
@@ -110,6 +128,7 @@ class VisualSceneController(QObject):
             elif action=='focus':
                 for entry in self.items.values():entry['focused']=False
                 item['focused']=True;item['revealed']=True;item['focused_until']=now+3
+                item['chars']=len(item['text'])
             elif action=='update':
                 original={key:value for key,value in item.items() if key in {'id','icon','text','anchor','x','y','role','palette','animation','cue','scale','parts','pinned'}}
                 patch=command['patch']
@@ -118,11 +137,15 @@ class VisualSceneController(QObject):
                 if sum(len(entry['text']) for key,entry in self.items.items() if key!=identifier)+len(candidate['text'])>1800:raise ValueError('Texto demais na cena.')
                 self.items[identifier]={**candidate,'created':now,'expires':now+command['duration'],
                     'revealed':not bool(candidate['cue']),'chars':0,'focused':item['focused'],'timing':'visual'}
-                self.cancelled=False;self.clock.reset();self.pending_cues=[];self.speech_end=0
+                self.cancelled=False
+                self.pending_cues=[event for event in self.pending_cues if event['id']!=identifier]
+                rebasing=self.clock.cancelled
+                self.clock.resume()
+                if rebasing:self.clock.elapsed=self.window._presentation_clock.elapsed
         self.ensure_view() if self.items else None
         self.reflow(force=True);self.tick()
         self.schedule_expiry()
-        if action in ('compose', 'update'):
+        if action=='compose':
             self.clock.elapsed = self.window._presentation_clock.elapsed
         return {'ok':True,'scene':self.snapshot(),'note':'Posições resolvidas para preservar o holograma, as informações reais e os controles. Símbolos são ilustrativos.'}
 
@@ -131,7 +154,7 @@ class VisualSceneController(QObject):
         self._motion_reduced=bool(ui._read_full_config().get('reduce_motion',False))
         stage=self.window._scene_stage;self.layer.setGeometry(stage.rect())
         self._placements=library.resolve_layout(list(self.items.values()),stage.width(),stage.height(),self.blocked(),self.layout,self.measure)
-        visible=bool(self.items) and not self.window._resting and not self.window.isMinimized() and self.window.isVisible()
+        visible=bool(self.items) and self.scene_visible()
         self.layer.setVisible(visible)
         if visible:self.layer.raise_()
         if self.view:self.view.setGeometry(self.layer.rect())
@@ -161,6 +184,7 @@ class VisualSceneController(QObject):
         compact={**payload,'elements':[{key:value for key,value in item.items() if key not in ('chars','created','expires','text','timing')} for item in self._placements]}
         if self.view and (force or compact!=self._last_payload):self.view.sync(compact)
         self._last_payload=compact
+        self.schedule_animation()
 
     def render_text(self,item):
         label=self.labels[item['id']]
@@ -170,21 +194,19 @@ class VisualSceneController(QObject):
         if label.text()!=value:label.setText(value)
 
     def tick(self):
-        now=time.monotonic();changed=False;writing=False
-        visible=not self.window._resting and self.window.isVisible() and not self.window.isMinimized()
+        now=time.monotonic();changed=False
+        visible=self.scene_visible()
         for identifier,item in list(self.items.items()):
             if not item['pinned'] and now>=item['expires']:del self.items[identifier];changed=True;continue
             if item.get('focused_until',math.inf)<=now:item['focused']=False;item.pop('focused_until',None);changed=True
-            if not visible or self.cancelled:continue
+            if not visible or self.cancelled or self.clock.cancelled or self.clock.finished:continue
             if not item['revealed'] and not self.clock.active and now-item['created']>=6:
                 item['revealed']=True;item['timing']='fallback-visual';changed=True
             if item['revealed'] and item['chars']<len(item['text']):
                 item['chars']=len(item['text']) if self.reduced() else min(len(item['text']),item['chars']+3)
-                self.render_text(item);writing=item['chars']<len(item['text']) or writing
+                self.render_text(item)
         if changed:self.reflow(force=True)
-        if self.items and (not self.cancelled) and (writing or any(not item['revealed'] or item.get('focused_until') for item in self.items.values())):
-            self.timer.start(40 if writing else 500)
-        else:self.timer.stop()
+        self.schedule_animation()
 
     def schedule_expiry(self):
         deadlines=[item['expires'] for item in self.items.values() if not item['pinned']]
@@ -217,7 +239,7 @@ class VisualSceneController(QObject):
 
     def advance(self,seconds):
         self.clock.advance(seconds);changed=False
-        if self.cancelled:return
+        if self.cancelled or self.clock.finished:return
         while self.pending_cues and self.pending_cues[0]['at']<=self.clock.elapsed:
             event=self.pending_cues.pop(0);item=self.items.get(event['id'])
             if item and item['created']==event['created']:
@@ -229,9 +251,18 @@ class VisualSceneController(QObject):
 
     def finish(self):
         if self.cancelled or not self.clock.active:return
+        self.clock.finish()
         for item in self.items.values():
-            if not item['revealed']:item['revealed']=True;item['timing']='fim-da-fala'
-        self.pending_cues=[];self.reflow(force=True);self.tick()
+            if item['revealed']:
+                item['chars']=len(item['text'])
+                self.render_text(item)
+        self.pending_cues=[];self.timer.stop();self.reflow(force=True)
+
+    def resume(self):
+        if self.clock.finished:
+            self.clock.reset()
+            self.clock.elapsed=self.window._presentation_clock.elapsed
+            self.speech_end=self.clock.elapsed
 
     def clear_all(self,preserve_pinned=False):
         self.items={key:item for key,item in self.items.items() if preserve_pinned and item['pinned']}
@@ -242,4 +273,4 @@ class VisualSceneController(QObject):
             'renderer':'WebGL' if self.view and not self.view.failed else 'alternativa-2D',
             'elements':[{**{key:copy.deepcopy(item.get(key)) for key in ('id','icon','text','anchor','bounds','revealed','pinned','timing','focused','placement_note')},
                 'visible':bool(item['visible'] and item['revealed'] and self.layer.isVisible()),
-                'displayed_text':self.labels[item['id']].text() if item['id'] in self.labels and item['revealed'] else ''} for item in self._placements]}
+                'displayed_text':self.labels[item['id']].text() if item['id'] in self.labels and item['revealed'] and item['visible'] and self.layer.isVisible() else ''} for item in self._placements]}

@@ -142,4 +142,6 @@ def result(identifier):
         job=_jobs.get(str(identifier))
         if not job:raise ValueError('Execução desconhecida ou já removida do histórico temporário.')
         return {'ok':True,'job_id':identifier,'state':job['state'],'completed':job['result'] is not None,
-            'result':json.loads(json.dumps(job['result'])),'data_is_untrusted':True}
+            'result':json.loads(json.dumps(job['result'])),
+            'uncertain':bool(isinstance(job['result'],dict) and job['result'].get('uncertain')),
+            'verification_required':True,'data_is_untrusted':True}

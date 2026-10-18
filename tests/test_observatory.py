@@ -25,7 +25,7 @@ class ObservatoryTests(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.url+'/space.html')
         await self.page.wait_for_function('typeof window.spaceDiagnostics === "function"')
         await self.page.wait_for_function('document.body.dataset.asset==="ready"')
-        await self.page.wait_for_function('window.spaceDiagnostics().surfaceMaps.earth==="NASA" && window.spaceDiagnostics().surfaceMaps.moon==="NASA"')
+        await self.page.wait_for_function('window.spaceDiagnostics().surfaceMaps.earth==="Solar System Scope" && window.spaceDiagnostics().surfaceMaps.moon==="Solar System Scope"')
         await self.page.evaluate('window.updateCore({mode:"exploration",planet:"saturn",motion:"reduced"})')
         baseline=await self.page.evaluate('window.spaceDiagnostics()')
         self.assertEqual(len(baseline['planets']),10)

@@ -1,6 +1,7 @@
 """Local self-description from approved modules and actual tool declarations."""
 import ast
 import copy
+import re
 from core.application_context import normalized
 from pathlib import Path
 from core.panel_catalog import catalog
@@ -15,6 +16,11 @@ SETTINGS_PAGES={
     'ai':{'title':'IA e memória','meaning':'Configurar IA e consultar fatos locais persistentes.'},
 }
 COMPONENTS={
+    'spectro':('core/spectro.py','Presenca do mesmo nucleo no desktop, ajustes de voz, observacao UIA por app autorizado, marcacoes click-through e sugestoes limitadas a eventos reais. Privacidade imediata. Retorno de emergencia Ctrl+Alt+Shift+F12.'),
+    'ultron':('core/ultron/runtime.py','Diagnostico, monitoramento e recuperacao locais. Estado real do protocolo e confirmacoes ligadas ao pedido atual; animacao nao comprova varredura concluida.'),
+    'neural_memory':('core/neural_memory.py','Forma Neural: apresentacao de evidencias recuperadas da memoria. Nao e outro assistente nem cria lembrancas; resultados devem corresponder ao assunto solicitado.'),
+    'personality':('core/personality.py','Identidade conversacional estável, aprendizado gradual local e preferências explícitas prioritárias.'),
+    'conversation_memory':('core/conversation_memory.py','Histórico local independente da API; contexto de conversa, nunca autorização para executar pedidos antigos.'),
     'conversation':('main.py','Sessão, áudio, despacho de ferramentas e contexto de conversa.'),
     'interface':('ui.py','Janela, holograma, cena, seleções e controle semântico do painel.'),
     'settings':('core/settings_hub.py','Páginas de configurações, perfil, aparência e conexões.'),
@@ -29,12 +35,15 @@ COMPONENTS={
     'knowledge_library':('core/file_library.py','Busca explicita e indexacao limitada de arquivos com fonte.'),
     'execution':('core/task_execution.py','Planos e evidencias de ferramentas, sem concluir objetivos por suposicao.'),
     'backups':('core/resource_backups.py','Backup sem credenciais; recuperacao em pasta separada.'),
+    'forge':('core/forge_controller.py','FORJA: laboratorio de criacao local com motor Codex separado, projetos persistentes e previa isolada.'),
     'office':('core/office_resources.py','Criacao confirmada de documentos e planilhas, sem macros.'),
     'external_tools':('core/mcp_bridge.py','Servidor MCP aprovado e ferramentas permitidas, com confirmacao humana.'),
     'resource_manual':('core/resource_manual.py','Checklist dos 32 recursos e protocolos de uso de cada ferramenta.'),
     'resource_policy':('core/resource_policy.py','Distingue dependencias locais de contas externas autorizadas.'),
 }
 RULES=[
+    'Uma conversa sobre a Forja, ULTRON ou memoria nao pede ativacao. Diferencie opiniao, pergunta, proposta e execucao. Use contexto recente para resolver referencias; pergunte quando houver dois alvos plausiveis ou uma correcao contraditoria. Nao exija palavras exatas e nao execute uma acao parecida por adivinhacao.',
+    'FORJA e o laboratorio de criacao. Ativacao e saida sao coordenadas pelo host a partir do pedido real da pessoa. Durante a FORJA, Codex cria e testa num projeto proprio; nao executar outra implementacao pelas ferramentas normais. A voz do Jarvis permanece. Progresso, arquivos e sucesso precisam de evidencia real; nao inventar percentual. Sair preserva projetos e fixados; nao publica no GitHub.',
     'Uma apresentação interrompida não retoma por causa de outra resposta. Confira presentation.paused em interface_control inspect e use resume somente quando a pessoa pedir para continuar aquele assunto. return restaura contexto anterior; uma troca de tema exige consultar e apresentar os dados do tema novo.',
     'O observatorio espacial acompanha a conversa. interface_control environment aceita normal, foco, analise, execucao, exploracao e nomes dos planetas em portugues. Use para pedidos sobre o cenario ou para destacar o planeta explicado. Confira environment_result.resolved_mode e renderer, nao apenas requested_mode. Leitura detalhada tem prioridade; explique quando um modo solicitado estiver adiado. clear tambem remove o foco planetario e restaura o ambiente normal. Orbitas sao artisticas sem escala, nao dados astronomicos. Nunca apresente brilho, animacao ou modo de execucao como prova de sucesso.',
     'Consulte a ferramenta do domínio para dados reais; interface_control só modifica apresentação.',
@@ -76,30 +85,39 @@ def component_outline(component,offset=0,limit=30):
 
 
 def execution_guide(request,context=None,declarations=None):
-    text=normalized(request)
-    routes=[(('powershell','comando do windows'),'powershell_control','Verificar elevação, executar o comando pedido diretamente sem nova confirmação e verificar result/stdout/stderr/exit_code. Não repetir uma alteração incerta às cegas.'),
+    text=' '.join(normalized(request).split())
+    def mentions(word):
+        return re.search(r'(?<!\w)'+re.escape(word)+r'(?!\w)',text) is not None
+    routes=[(('espectro',),'spectro_control','Consultar inspect; observacao automatica da janela ativa em todos os modos. context fornece controles; highlight usa ID real e cor; draw usa pontos observados. privacy pausa imediatamente. No Espectro a base fica oculta; mostrar notas e marcacoes no desktop. Retorno global Ctrl+Alt+Shift+F12.'),
+        (('forja',),'forge_protocol','Consultar status para o projeto atual; distinguir conversa, consulta a projetos salvos e pedido de criar. Mencionar Forja nao autoriza entrar ou iniciar trabalho. Encaminhar somente a fala literal atual quando houver pedido de execucao.'),
+        (('ultron','ulktron'),'ultron_protocol','Consultar diagnostico e estado real. Mencao ou pergunta nao ativa o protocolo. Acoes devem corresponder a fala atual e confirmacoes pendentes; nao inventar uma confirmacao.'),
+        (('agenda google','google agenda','agenda do google','calendario google','calendario do google'),'google_calendar','Verificar autorizacao Google, consultar calendario e usar IDs reais. Nao substituir pela agenda local.'),
+        (('powershell','comando do windows'),'powershell_control','Verificar elevação, executar o comando pedido diretamente sem nova confirmação e verificar result/stdout/stderr/exit_code. Não repetir uma alteração incerta às cegas.'),
         (('rascunho','enviar email','enviar e-mail'),'gmail_compose','Verificar autorizacao separada, preparar rascunho e solicitar confirmacao humana do envio.'),
         (('outlook','conta microsoft'),'outlook_service','Consultar conta autorizada, lista paginada e ID real antes de ler.'),
         (('notion',),'notion_service','Conferir identidade autorizada e pagina compartilhada; criar exige confirmacao humana e resultado do job.'),
         (('home assistant','casa inteligente'),'home_automation','Consultar entidades e estado real; controlar somente alvo autorizado com confirmacao.'),
-        (('backup','recuperar dados'),'resource_backups','Criar backup sem credenciais ou recuperar em pasta nova, sem substituir bancos em uso.'),
+        (('backup','backups','recuperar dados'),'resource_backups','Criar backup sem credenciais ou recuperar em pasta nova, sem substituir bancos em uso.'),
         (('duplicados','indexar documento','biblioteca de conhecimento'),'file_library','Consultar pasta/arquivo explicito e preservar fonte, hash e limites de extracao.'),
-        (('contato','apelido','projeto','transcricao','nota pessoal'),'local_resources','Consultar registro local por ID; desambiguar nomes e nao executar tarefas inferidas da transcricao.'),
+        (('contato','contatos','apelido','apelidos','projeto','projetos','transcricao','transcricoes','nota pessoal','notas pessoais'),'local_resources','Consultar registro local por ID; desambiguar nomes e nao executar tarefas inferidas da transcricao.'),
         (('criar planilha','criar documento'),'office_resources','Preparar dados e destino novo, solicitar confirmacao e consultar resultado do job.'),
         (('holograma','nucleo','rosto','configuracoes','fixar','fixa','painel','cenario','orbita','sistema solar','explorar saturno','mostrar saturno'),'interface_control','Inspecionar cena, usar ID real, aplicar ação semântica e verificar a cena. environment muda o observatorio ou destaca planeta; normal restaura, foco reduz distracoes. Verifique renderer; fallback nao exibe planetas WebGL.'),
-        (('gmail','email','e-mail'),'gmail_control','Listar e selecionar ID real; ler corpo e continuar paginação antes de resumir.'),
+        (('gmail','email','emails','e-mail','e-mails'),'gmail_control','Listar e selecionar ID real; ler corpo e continuar paginação antes de resumir.'),
         (('whatsapp','wtts'),'whatsapp_web','Listar prévias, abrir conversa exata e verificar. Envio incerto não deve ser repetido.'),
         (('noticia','noticias'),'news_briefing','Consultar fontes e apresentar imagens e resumo no holograma, seguindo a narração.'),
         (('gpu','cpu','ram','pc lento','computador lento'),'system_status','Consultar métricas reais e investigar o gargalo antes de propor mudanças.'),
         (('clima','chuva','previsao','temperatura'),'weather_report','Consultar a cidade real/salva, materializar dados e explicar a condição.'),
         (('google agenda','agenda google'),'google_calendar','Verificar autorização Google, consultar calendário e usar IDs reais.'),
-        (('tarefa','agenda','compromisso'),'organizer','Consultar registros locais e resolver ID/seleção. Não confundir com agenda Google.'),
-        (('memoria','lembra','lembre'),'memory_control','Consultar fatos persistidos; usar paginação e distinguir dado antigo de correção atual.'),
+        (('tarefa','tarefas','agenda','compromisso','compromissos'),'organizer','Consultar registros locais e resolver ID/seleção. Não confundir com agenda Google.'),
+        (('memoria','memorias','lembranca','lembrancas','lembra','lembre'),'memory_control','Consultar fatos persistidos; usar paginação e distinguir dado antigo de correção atual.'),
         (('sistema','pc lento','computador lento'),'system_status','Consultar métricas reais e investigar o gargalo antes de propor mudanças.')]
     tool='';steps='';app=''
+    candidates=[]
     for words,name,description in routes:
-        if any(word in text for word in words):tool=name;steps=description;break
-    if not tool and any(word in text for word in ('internet','google','navegador','site','web')):
+        if any(mentions(word) for word in words):
+            if name not in candidates:candidates.append(name)
+            if not tool:tool=name;steps=description
+    if not tool and any(mentions(word) for word in ('internet','google','navegador','site','web')):
         tool='structured_browser';steps='Inspecionar a página gerenciada e agir em control_id recente; verificar após a ação.'
     if not tool and context:
         app=context.search_target(text=request)
@@ -108,6 +126,9 @@ def execution_guide(request,context=None,declarations=None):
             steps='Confirmar app e janela, inspecionar, agir no controle real e verificar o objetivo. Buscar não é reproduzir.'
     available=None if declarations is None else {item.get('name') for item in declarations}
     return {'suggested_tool':tool or None,'tool_available':None if available is None else tool in available,
+        'candidate_tools':candidates,'multiple_domains':len(candidates)>1,
+        'candidate_availability':{name:None if available is None else name in available for name in candidates},
+        'interpretation':'Correspondencias de dominio, nao intencao confirmada. Relacione com o pedido e contexto; varios dominios podem ser etapas do mesmo objetivo. Pergunte apenas se o alvo ou efeito permanecer ambiguo.',
         'app':app or None,'steps':steps or 'Identificar domínio e consultar ferramentas reais antes de escolher uma ação.',
         'execution_started':False,'needs_actual_observation':True,'data_is_untrusted':True,
         'note':'Orientação de execução, não raciocínio privado nem autorização. Não substitui inspecionar e verificar.'}

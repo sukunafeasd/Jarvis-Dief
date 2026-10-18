@@ -15,9 +15,10 @@ class ProjectionTests(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.url+'/presentation.html')
         await self.page.wait_for_function('typeof window.updateCore==="function"')
 
-    async def test_surface_policy_keeps_weather_pins_and_refresh_glass(self):
+    async def test_surface_policy_keeps_live_weather_unframed_and_pins_and_refresh_glass(self):
         await self.prepare()
-        cases=[({'kind':'weather','code':61,'temperature':23},'card'),
+        cases=[({'kind':'weather','code':61,'temperature':23},'projection'),
+               ({'kind':'weather','code':61,'temperature':23,'compact':True,'framed':True},'card'),
                ({'kind':'gmail','compact':True,'framed':True},'card'),
                ({'kind':'status','refreshTransaction':True},'card'),
                ({'kind':'news'},'embedded'),({'kind':'gmail'},'projection'),

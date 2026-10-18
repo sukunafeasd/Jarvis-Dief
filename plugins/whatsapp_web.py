@@ -53,5 +53,6 @@ def run(parameters, session_memory=None, player=None, **kwargs):
         player.show_manifestation({'kind':'whatsapp','title':title,'items':items,'reading':action=='read_chat',
                                    'contact':result.get('contact',receiver),'complete':result.get('complete',False),
                                    'text':result.get('note',''),'source':'WhatsApp Web · consulta real',
-                                   'emptyText':'Nenhuma conversa não lida encontrada nesta consulta.' if action == 'unread' else 'Nenhuma mensagem carregada.'})
+                                   'emptyText':'Nenhuma conversa não lida encontrada nesta consulta.' if action == 'unread' else 'Nenhuma mensagem carregada.',
+                                   **({'refresh':{'provider':'whatsapp','parameters':{'action':'unread','limit':parameters.get('limit',10)}}} if action=='unread' else {})})
     return json.dumps(result,ensure_ascii=False)

@@ -48,8 +48,8 @@ export function buildCore(theme = "amber", economy = false) {
   const ctx = sprite.getContext("2d");
   const glow = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
   glow.addColorStop(0, "rgba(255,255,255,1)");
-  glow.addColorStop(0.18, "rgba(255,255,255,.9)");
-  glow.addColorStop(0.45, "rgba(255,255,255,.25)");
+  glow.addColorStop(0.10, "rgba(255,255,255,.95)");
+  glow.addColorStop(0.34, "rgba(255,255,255,.24)");
   glow.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, 32, 32);
@@ -57,7 +57,7 @@ export function buildCore(theme = "amber", economy = false) {
   const points = new THREE.Points(
     pointsGeo,
     new THREE.PointsMaterial({
-      size: 0.048,
+      size: 0.038,
       map: texture,
       vertexColors: true,
       transparent: true,

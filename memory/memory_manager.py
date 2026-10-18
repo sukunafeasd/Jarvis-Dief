@@ -16,7 +16,8 @@ def get_base_dir() -> Path:
 
 
 BASE_DIR         = get_base_dir()
-MEMORY_PATH      = BASE_DIR / "memory" / "long_term.json"
+from core.local_data import migrate
+MEMORY_PATH      = migrate(BASE_DIR / "memory" / "long_term.json", 'memory/long_term.json')
 _lock            = RLock()
 MAX_VALUE_LENGTH = 380
 

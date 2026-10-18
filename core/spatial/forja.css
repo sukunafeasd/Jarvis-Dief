@@ -1,0 +1,53 @@
+*{box-sizing:border-box;margin:0;padding:0;letter-spacing:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;color:#fff}
+body{font-family:Rajdhani,'Segoe UI',sans-serif}
+#forgeScene{position:fixed;inset:0;background:#000;overflow:hidden;--panel-width:clamp(260px,25vw,360px)}
+.forge-panel{position:absolute;left:30px;top:50%;width:var(--panel-width);max-height:calc(100% - 48px);transform:translateY(-50%);padding:24px;display:flex;flex-direction:column;opacity:0;visibility:hidden;z-index:2;background:transparent}
+.panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}
+.panel-title{font-size:18px;font-weight:600;color:#00ff88}
+.panel-status-dot{width:6px;height:6px;flex-shrink:0;background:#00ff88;border-radius:50%;box-shadow:0 0 8px #00ff88}
+.model-indicator{margin-bottom:20px}
+.model-label{font-size:11px;color:#8b9290;margin-bottom:8px}
+.model-value{font:600 16px 'Share Tech Mono',Consolas,monospace;color:#00ff88;overflow-wrap:anywhere}
+#projectName{font-size:13px;color:#bcc9c3;overflow-wrap:anywhere;margin-bottom:12px}
+#projectName:empty{display:none}
+.steps-container{display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0;scrollbar-width:thin;scrollbar-color:#00ff8850 transparent}
+.step-item{display:flex;align-items:flex-start;gap:12px;padding:14px;background:#ffffff05;border:1px solid #ffffff0d;border-radius:8px;position:relative;flex-shrink:0}
+.step-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:#929b97}
+.step-item.running{background:#00ffff0c;border-color:#00ffff35}
+.step-item.running::before{background:#00ffff}
+.step-item.completed{background:#00ff880c;border-color:#00ff8833}
+.step-item.completed::before{background:#00ff88}
+.step-item.failed::before{background:#ff5285}
+.step-item.pending{opacity:.55}
+.step-icon{width:24px;height:24px;display:grid;place-items:center;flex-shrink:0;color:#00ff88;font:16px Consolas,monospace}
+.step-info{min-width:0;flex:1}
+.step-name{font-size:13px;font-weight:600;color:#cdd8d2;margin-bottom:4px;overflow-wrap:anywhere}
+.running .step-name{color:#00ffff}.completed .step-name{color:#00ff88}.failed .step-name{color:#ff8bad}
+.step-detail{font-size:12px;line-height:1.4;color:#939e99;overflow-wrap:anywhere;white-space:pre-wrap}
+progress{display:block;width:100%;height:3px;margin-top:8px;accent-color:#00ff88}
+.empty-state{font-size:13px;line-height:1.5;color:#939e99;padding:22px 0}
+#promptForm{display:flex;gap:8px;align-items:flex-end;margin-top:20px;flex-shrink:0}
+textarea{width:100%;min-width:0;resize:none;border:0;border-bottom:1px solid #00ff8840;background:transparent;color:#e0eee7;font:13px/1.5 'Segoe UI',sans-serif;padding:8px 0;outline:none}
+textarea:focus-visible{outline:1px solid #00ffff;outline-offset:3px}
+#creationArea{position:absolute;left:calc(var(--panel-width) + 60px);right:0;top:0;bottom:0;opacity:0}
+#creationArea iframe{display:block;width:100%;height:100%;border:0;background:#000}
+#entranceLight{position:absolute;inset:0;width:100%;height:100%;background:transparent;opacity:0;pointer-events:none;z-index:3}
+#exitLight{position:absolute;inset:0;background:#e2fff0;opacity:0;pointer-events:none;z-index:4}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.panel-title{color:#c6e7ff;text-shadow:0 0 12px #2bbfff40}
+.panel-status-dot{background:#7edcff;box-shadow:0 0 10px #33bfff}
+.model-value{color:#8bddff;text-shadow:0 0 9px #269ee535}
+.model-label,.step-detail,.empty-state{color:#94b7ce}
+.steps-container{scrollbar-color:#38899b transparent}
+.step-item{background:linear-gradient(135deg,#082438ee,#020d18ee);border:1px solid #30769b;border-radius:8px;box-shadow:inset 0 1px #b1e6ff40,0 0 8px #238bd51a}
+.step-item::before{background:#6598ba;border-radius:3px;top:10px;bottom:10px}
+.step-item.running{background:linear-gradient(135deg,#0c3450ee,#03131fee);border-color:#7edcff;box-shadow:inset 0 1px #c8efff60,0 0 12px #31aeff30}
+.step-item.completed{background:linear-gradient(135deg,#082b32ee,#020d18ee);border-color:#367c88}
+.step-name{color:#def2ff}.running .step-name{color:#9ee8ff}.completed .step-name{color:#65efbc}
+.step-icon{color:#8bdfff}.failed .step-icon{color:#ff8bad}
+textarea{border-bottom-color:#36789e;color:#e5f5ff}
+textarea:focus-visible{outline-color:#9ee6ff}
+progress{accent-color:#61d7ff}
+[hidden]{display:none!important}
+@media(max-width:600px){#forgeScene{--panel-width:100%}.forge-panel{left:0;top:auto;bottom:0;transform:none;width:100%;max-height:44%;padding:16px 20px}.panel-header{margin-bottom:10px}.model-indicator{margin-bottom:10px}.empty-state{padding:6px 0}#promptForm{margin-top:10px}#creationArea{left:0;top:0;bottom:44%}.steps-container{gap:8px}.step-item{padding:10px}}

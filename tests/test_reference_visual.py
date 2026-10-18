@@ -17,10 +17,12 @@ class ReferenceVisualTests(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.url + '/presentation.html')
         await self.page.wait_for_function('typeof window.updateCore === "function"')
         model = {'kind': 'weather', 'title': 'CLIMA', 'temperature': 23,
-            'code': 61, 'condition': 'Chuva', 'motion': 'reduced'}
+            'code': 61, 'condition': 'Chuva', 'motion': 'reduced', 'compact': True}
         await self.page.evaluate('m => window.updateCore(m)', model)
         await self.page.wait_for_timeout(2600)
         paints = await self.page.evaluate('Number(document.body.dataset.hudPaints)')
+        self.assertIsInstance(paints, int)
+        self.assertGreater(paints, 0)
         for value in range(20):
             await self.page.evaluate('m => window.updateCore(m)', {**model, 'temperature': value})
         await self.page.wait_for_timeout(1200)
@@ -28,12 +30,16 @@ class ReferenceVisualTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator('canvas').count(), 1)
         self.assertEqual(await self.page.evaluate('getComputedStyle(document.querySelector("main"),"::before").animationName'), 'none')
         image = Image.open(BytesIO(await self.page.screenshot())).convert('RGB')
-        red_edges = sum(r > 120 and r > g * 1.5 and r > b * 1.3
+        blue_edges = sum(b > 120 and b > r * 1.3 and g > r * 1.2
             for r, g, b in image.getdata())
-        self.assertGreater(red_edges, 200)
+        self.assertGreater(blue_edges, 200)
         await self.page.set_viewport_size({'width': 390, 'height': 560})
         await self.page.wait_for_timeout(250)
         self.assertGreater(await self.page.evaluate('Number(document.body.dataset.hudPaints)'), paints)
+        await self.page.evaluate('m => window.updateCore(m)', {**model, 'framed': True})
+        await self.page.wait_for_function('document.body.style.getPropertyValue("--hud-surface") === "none"')
+        self.assertEqual(await self.page.evaluate('document.body.style.getPropertyValue("--hud-surface")'), 'none')
+        self.assertEqual(await self.page.evaluate('getComputedStyle(document.body).backgroundImage'), 'none')
         for kind in ('news', 'status'):
             await self.page.evaluate('m => window.updateCore(m)', {'kind': kind, 'title': 'Teste', 'motion': 'reduced'})
             await self.page.wait_for_timeout(150)

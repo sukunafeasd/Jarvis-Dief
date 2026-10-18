@@ -7,21 +7,11 @@ from PyQt6.QtGui import QColor, QPainter, QIcon, QTransform, QTextCursor, QImage
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QLineEdit, QPushButton, QStyle, QFileDialog, QGraphicsView, QGraphicsScene)
 
-STYLE = '''
-QWidget#Surface {background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0e232e,stop:0.65 #061218,stop:1 #101b24);border:1px solid #337484;border-radius:6px;}
-QWidget#Surface[panelMode="terminal"] {border-top:2px solid #ff515b;border-left:1px solid #d64854;}
-QWidget#Surface[panelMode="execution"] {border-top:2px solid #4dddeb;border-right:1px solid #e3525c;}
-QLabel {color:#ecf1f4;background:transparent;border:0;}
-QTextEdit {background:transparent;color:#e5f6fd;border:0;border-top:1px solid #48cbde50;padding-top:8px;font:12px 'Segoe UI';selection-background-color:#335461;}
-QLineEdit {background:#071820;color:#f1f5f7;border:1px solid #376373;border-radius:4px;padding:9px;font:12px 'Segoe UI';}
-QLineEdit:focus {border-color:#50dfef;background:#10262e;}
-QPushButton {background:transparent;color:#cbe8ed;border:1px solid transparent;border-radius:4px;padding:5px;}
-QPushButton:hover {background:#183943;border-color:#4bb4c4;}
-QPushButton:focus {border-color:#64e8f1;}
-QPushButton:disabled {color:#687d88;}
-QScrollBar:vertical {background:#111d27;width:6px;}
-QScrollBar::handle:vertical {background:#47616e;min-height:18px;}
-QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {height:0;}
+from core.auxiliary_theme import SURFACE_STYLE
+STYLE=SURFACE_STYLE+'''
+QWidget#Surface { background:transparent; border:0; }
+QTextEdit { background:transparent; border:0; border-top:1px solid #3c8eb560; padding:8px 0; }
+QPushButton { padding:4px; }
 '''
 
 
@@ -77,7 +67,7 @@ class WorkspacePanel(QGraphicsView):
         self.title = QLabel('TERMINAL' if mode=='terminal' else 'EXECUÇÃO')
         self.title.setText('DIEF JARVIS · '+('Terminal' if mode=='terminal' else 'Execução'))
         self.title.setWordWrap(True)
-        self.title.setStyleSheet('color:'+('#ff9196' if mode=='terminal' else '#83edf6')+';font:600 11px "Segoe UI";')
+        self.title.setStyleSheet('color:#c6e7ff;font:600 14px "Segoe UI";')
         header.addWidget(self.title); header.addStretch()
         layout.addLayout(header)
         self.status = QLabel('Conversa com o DIEF JARVIS' if mode=='terminal' else 'Aguardando uma operação')

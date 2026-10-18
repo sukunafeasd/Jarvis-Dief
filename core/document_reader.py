@@ -95,7 +95,8 @@ def read(parameters):
     if path.stat().st_size>MAX_BYTES:raise ValueError('Documento acima do limite de 25 MB.')
     # Credentials are not documents for the assistant to quote.
     root=Path(__file__).resolve().parents[1]
-    if path.is_relative_to(root/'config') or any(part.lower() in ('.ssh','.aws') for part in path.parts):
+    from core.local_data import ROOT as PRIVATE_DATA
+    if path.is_relative_to(root/'config') or path.is_relative_to(PRIVATE_DATA.resolve()) or any(part.lower() in ('.ssh','.aws') for part in path.parts):
         raise ValueError('Arquivos de credenciais não podem ser exibidos pelo leitor de documentos.')
     text,partial=extract(path)
     offset=max(0,int(parameters.get('offset',0)));limit=max(100,min(20000,int(parameters.get('max_chars',12000))))

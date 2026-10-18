@@ -126,13 +126,57 @@ class HudGlassFrame(QFrame):
 
 
 class PinnedPreviewFrame(HudGlassFrame):
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        self._semantic={}
+
+    def set_semantic(self,data):
+        from core.observatory_theme import ACCENTS
+        self._semantic={'kind':data.get('kind'),'code':data.get('code',-1),'rain':data.get('rain',0),'day':data.get('is_day',1)}
+        self.set_accent(ACCENTS.get(data.get('kind'),'#8dcaff'))
+
+    @pyqtProperty(float)
+    def lightPhase(self):return self._light_phase
+
+    @lightPhase.setter
+    def lightPhase(self,value):
+        self._light_phase=value
+        if self._can_animate():
+            if self._semantic.get('kind')=='weather':self.update()
+            else:self.update(QRegion(self.rect()).subtracted(QRegion(self.rect().adjusted(18,18,-18,-18))))
+        else:self.suspend_motion()
+
     def paintEvent(self,event):
-        super().paintEvent(event)
+        from core.observatory_theme import optical_plate
+        QFrame.paintEvent(self,event)
+        key=(self.width(),self.height(),min(1.5,self.devicePixelRatioF()),self._accent)
+        if key!=self._plate_key:self._plate_key=key;self._plate=optical_plate(*key)
         painter=QPainter(self)
-        strip=QLinearGradient(12,12,self.width()-12,34)
-        accent=QColor(self._accent);accent.setAlpha(45)
-        strip.setColorAt(0,accent);strip.setColorAt(.7,QColor(23,33,48,160));strip.setColorAt(1,QColor(23,33,48,20))
-        painter.fillRect(12,12,max(1,self.width()-24),24,strip)
-        accent.setAlpha(90);painter.setPen(QPen(accent,1))
-        painter.drawLine(14,36,max(14,self.width()-14),36)
+        painter.drawPixmap(0,0,self._plate)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        accent=QColor(self._accent);accent.setAlpha(105);painter.setPen(QPen(accent,1))
+        if self._semantic:painter.drawLine(16,38,max(16,self.width()-16),38)
+        t=0 if self._motion_reduced else self._light_phase
+        x=15+(self.width()-30)*t
+        beam=QLinearGradient(x-40,6,x+40,6)
+        beam.setColorAt(0,QColor(126,186,255,0));beam.setColorAt(.5,QColor(218,239,255,200));beam.setColorAt(1,QColor(126,186,255,0))
+        for width,opacity in ((8,.16),(4,.32),(1.5,1)):
+            painter.setOpacity(opacity);painter.setPen(QPen(beam,width));painter.drawLine(max(20,round(x-40)),6,min(self.width()-20,round(x+40)),6)
+        painter.setOpacity(1)
+        painter.setPen(QPen(beam,2));painter.drawLine(max(20,round(x-40)),self.height()-6,min(self.width()-20,round(x+40)),self.height()-6)
+        kind=self._semantic.get('kind')
+        if kind=='weather' and isinstance(self._semantic.get('code'),(int,float)) and self._semantic['code']>=51:
+            painter.setPen(QPen(QColor(91,175,255,40),1))
+            snow=self._semantic['code'] in (71,73,75,77,85,86)
+            for i in range(20):
+                x=18+(i*37)%max(1,self.width()-36);y=48+(i*19+t*(65 if snow else 180))%max(1,self.height()-60)
+                if snow:painter.drawPoint(round(x),round(y))
+                else:painter.drawLine(round(x),round(y),round(x-3),round(min(self.height()-12,y+9)))
+        elif kind in ('system','tasks','calendar','gmail','whatsapp','memory','news','files','search','data'):
+            accent.setAlpha(120);painter.setPen(QPen(accent,2))
+            pace={'tasks':1,'calendar':.45,'gmail':.75,'whatsapp':1.3,'system':1.6,'news':.6}.get(kind,.8)
+            span=max(1,self.width()-32)
+            for i in range(4):
+                x=16+span*((t*pace+i/4)%1)
+                painter.drawLine(round(x),self.height()-8,min(self.width()-14,round(x+9)),self.height()-8)
         painter.end()
