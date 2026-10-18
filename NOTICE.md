@@ -1,13 +1,13 @@
-# Creditos e distribuicao
+# Avisos legais e distribuicao
 
-DIEF JARVIS 1.0 e uma adaptacao do projeto MARK LV, de FatihMakes:
+DIEF JARVIS incorpora material originalmente distribuido como MARK LV, de FatihMakes:
 https://github.com/FatihMakes/Mark-LV
 
-Esta distribuicao incorpora a interface, integracoes, controle espacial,
+Esta distribuicao inclui interface, integracoes, controle espacial,
 memoria, verificacoes e atualizador desenvolvidos para DIEF JARVIS.
-O trabalho original e seus avisos sao preservados no arquivo LICENSE.
+Os avisos de material incorporado permanecem neste arquivo.
 Seu licenciamento CC BY-NC 4.0 exige atribuicao e nao permite uso comercial.
-O nome DIEF JARVIS nao transfere a autoria do trabalho original.
+O nome e a identidade visual do produto sao DIEF JARVIS e Equipe Dief.
 
 Python e as bibliotecas de terceiros mantem suas licencas proprias.
 O pacote do runtime inclui LICENSE.txt do Python. Os pacotes instalados
