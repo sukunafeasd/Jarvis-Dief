@@ -839,6 +839,20 @@ class DashboardServer:
 
     # ── serve ─────────────────────────────────────────────────────────────
 
+    async def _serve_uvicorn(self, config, label: str) -> None:
+        """Keep an optional dashboard bind failure out of Jarvis' voice loop.
+
+        Uvicorn raises ``SystemExit(3)`` when a port is already occupied.  The
+        dashboard runs as an independent task, so that exception must never be
+        allowed to end the event loop that owns the Live voice session.
+        """
+        try:
+            await uvicorn.Server(config).serve()
+        except asyncio.CancelledError:
+            raise
+        except BaseException as error:
+            print(f"[Dashboard] {label} unavailable ({type(error).__name__}); voice session remains active.")
+
     async def _serve_alias(self) -> None:
         """Second HTTPS server on PORT+1 sharing the same app and in-memory state.
         Chrome HTTPS-upgrades any bare IP:PORT the user types, so this port also needs TLS.
@@ -851,7 +865,7 @@ class DashboardServer:
             ssl_keyfile=str(ssl_key), ssl_certfile=str(ssl_cert),
         )
         print(f"[Dashboard] Manual entry:  {self._ip}:{PORT + 1}  (type in browser, accept cert once)")
-        await uvicorn.Server(cfg).serve()
+        await self._serve_uvicorn(cfg, "Manual entry")
 
     async def serve(self) -> None:
         if not _DEPS_OK:
@@ -881,4 +895,4 @@ class DashboardServer:
         proto = "https" if use_ssl else "http"
         print(f"[Dashboard] {proto}://{self._ip}:{PORT}")
         print("[Dashboard] Press 'Remote Control' in JARVIS UI to get the QR code.")
-        await uvicorn.Server(cfg).serve()
+        await self._serve_uvicorn(cfg, "Remote dashboard")

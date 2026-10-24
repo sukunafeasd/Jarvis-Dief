@@ -66,7 +66,12 @@ def inventory_request(text):
 def topic_forms(word):
     aliases={'nome':{'name'},'idade':{'age'},'aniversario':{'birthday','nascimento'},'cidade':{'city'},
              'preferencias':{'preferences'},'gostos':{'preferences'},'voz':{'voice'},'vozes':{'voice','voz'}}
-    return {word,word[:-1] if word.endswith('s') and len(word)>4 else word}|aliases.get(word,set())
+    groups=({'computador','pc'}, {'backup','backups','copia','copias'},
+            {'email','emails','correio'}, {'calendario','agenda'},
+            {'bug','bugs','defeito','defeitos'}, {'rapidez','velocidade','desempenho'},
+            {'anotacoes','notas'}, {'lembretes','avisos'})
+    related=set().union(*(group for group in groups if word in group))
+    return {word,word[:-1] if word.endswith('s') and len(word)>4 else word}|aliases.get(word,set())|related
 
 
 def topic_matches(text,words):
@@ -213,7 +218,9 @@ def retrieve(query,exclude_text='',now=None):
     query=' '.join(terms(query))
     if not query and not inventory_request(exclude_text):
         return {'ok':True,'items':[],'needs_clarification':True,'query':'','question':exclude_text}
-    facts=ranked_memory_records(load_memory(strict=True),query)
+    # Candidate expansion and final filtering share the same topic vocabulary.
+    memory=load_memory(strict=True)
+    facts=ranked_memory_records(memory,' '.join(sorted(set().union(*(topic_forms(word) for word in terms(query)))))) if query else ranked_memory_records(memory,'')
     history=[]
     path=conversation_memory.path()
     if path.exists():

@@ -21,6 +21,18 @@ class SecondAuditTests(unittest.TestCase):
         self.assertEqual(self.window._pin_previews['calendar'].get('slot'),0)
         self.assertEqual(self.window._pin_previews['weather'].get('slot'),1)
 
+    def test_invalid_pin_cannot_rearrange_the_other_previews(self):
+        for kind in ('weather','calendar'):
+            self.window._show_manifestation({'kind':kind,'title':kind,'items':[]})
+            self.command('pin')
+        before={key:(item.get('placement'),item.get('slot'))
+                for key,item in self.window._pin_previews.items()}
+        result=self.command('move_pin','nao_existe','row')
+        self.assertFalse(result['ok'])
+        after={key:(item.get('placement'),item.get('slot'))
+               for key,item in self.window._pin_previews.items()}
+        self.assertEqual(before,after)
+
     def test_return_restores_previous_weather_period_with_same_title(self):
         self.window._show_manifestation({'kind':'weather','title':'CLIMA','period':'today','temperature':19})
         self.window._show_manifestation({'kind':'weather','title':'CLIMA','period':'tomorrow','temperature':25})

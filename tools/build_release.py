@@ -44,6 +44,16 @@ def descriptor(path):
     return {'name':path.name,'size':path.stat().st_size,'sha256':digest.hexdigest()}
 
 
+def application_files(source):
+    """Keep development evidence in source exports, not in the installed app."""
+    from tools.prepare_public_release import candidates
+    development_directories = {'tests', 'docs', 'validation', '.github'}
+    development_files = {'.gitignore', '.gitattributes'}
+    return [path for path in candidates(source)
+            if path.parts[0] not in development_directories
+            and path.as_posix() not in development_files]
+
+
 def runtime_files(root):
     files=[]
     for name in ('python.exe','pythonw.exe','python3.dll','python312.dll','vcruntime140.dll','vcruntime140_1.dll','LICENSE.txt'):
@@ -69,8 +79,8 @@ def main():
     key,public=keypair(args.signing_key)
     from core.release_identity import PUBLIC_KEY
     if PUBLIC_KEY!=public:raise ValueError('Configure PUBLIC_KEY com a chave publica antes de exportar. Publica: '+public)
-    from tools.prepare_public_release import candidates,audit
-    files=candidates(source);audit(source,files)
+    from tools.prepare_public_release import audit
+    files=application_files(source);audit(source,files)
     application=output/f'DIEF-JARVIS-{VERSION}-application.zip'
     runtime=output/'DIEF-JARVIS-python-3.12-win-x64.zip'
     create_zip(application,source,files)

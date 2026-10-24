@@ -2703,7 +2703,7 @@ class PluginSettingsOverlay(_FuiOverlay):
                 w.setCursor(Qt.CursorShape.PointingHandCursor)
                 self._style_toggle(w)
                 w.toggled.connect(lambda _=False, b=w: self._style_toggle(b))
-            else:  # text / password
+            else:  # text / password / local file
                 w = QLineEdit("" if stored is None else str(stored))
                 w.setFont(QFont("Courier New", 10))
                 w.setFixedHeight(30)
@@ -2716,7 +2716,17 @@ class PluginSettingsOverlay(_FuiOverlay):
 
             self._widgets[(ns, key)] = w
             self._types[(ns, key)]   = ftype
-            form.addWidget(w)
+            if ftype == 'file':
+                row=QHBoxLayout();row.setSpacing(6);row.addWidget(w,1)
+                browse=QPushButton('Selecionar JSON')
+                browse.setToolTip('Selecionar um arquivo de credencial OAuth no computador')
+                def choose_file(_=False,target=w):
+                    path,_=QFileDialog.getOpenFileName(self,'Selecionar credencial OAuth','','Credenciais Google (*.json);;Todos os arquivos (*)')
+                    if path:target.setText(path)
+                browse.clicked.connect(choose_file);row.addWidget(browse)
+                form.addLayout(row)
+            else:
+                form.addWidget(w)
 
         # optional test/connect action button + status line
         setup_url=sec.get('setup_url')
@@ -3115,6 +3125,7 @@ class MainWindow(QMainWindow):
     _state_sig      = pyqtSignal(str)
     _content_sig    = pyqtSignal(str, str)   # (title, text) — thread-safe content display
     _manifestation_sig = pyqtSignal(object)
+    _verified_manifestation_sig = pyqtSignal(object)
     _live_pin_sig = pyqtSignal(object)
     _telemetry_sig = pyqtSignal(object, object)
     _narration_sig = pyqtSignal(object)
@@ -3395,11 +3406,14 @@ class MainWindow(QMainWindow):
         avatar_layout = QVBoxLayout(self._avatar_scene)
         avatar_layout.setContentsMargins(0, 0, 0, 0)
         avatar_layout.setSpacing(4)
+        self._scene_header_visible = False
         for label in (self._title_lbl, self._clock_lbl, self._date_lbl):
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setParent(self.centralWidget())
             label.raise_()
-            label.show()
+            # The clock belongs to the observatory, not its loading cover.  It
+            # is revealed only after either renderer has prepared a scene.
+            label.hide()
             label.installEventFilter(self)
         self._title_lbl.setText("DIEF JARVIS")
         self._title_lbl.setStyleSheet(f"color: {C.WHITE}; background: transparent;")
@@ -3503,6 +3517,7 @@ class MainWindow(QMainWindow):
         self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content)
         self._manifestation_sig.connect(self._show_manifestation)
+        self._verified_manifestation_sig.connect(self._show_verified_manifestation)
         self._neural_sig.connect(self._update_neural_memory)
         self._narration_sig.connect(self._narrate_presentation)
         from core.presentation_clock import PresentationClock
@@ -3584,6 +3599,8 @@ class MainWindow(QMainWindow):
             self._connection_timer.start(300000)
             QTimer.singleShot(1500,self._verify_saved_connections)
         self._sound_sig.connect(self._ui_sounds.play)
+        from core.update_notice import UpdateNotice
+        self._update_notice=UpdateNotice(self)
         self._refresh_lock=None
         self._pins_restored=False
         self._opening_veil=None
@@ -3685,15 +3702,48 @@ class MainWindow(QMainWindow):
         self._space_fallback.show();self._space_fallback.lower()
         if self._opening_veil and not self._opening_veil.released:self._opening_veil.raise_()
         if SpatialCoreView and os.environ.get('QT_QPA_PLATFORM')!='offscreen':
-            self._space_view = SpatialCoreView(self._scene_stage,'space.html')
-            self._space_view.ready.connect(self._start_environment)
-            self._space_view.ultron_unavailable.connect(self._ultron_visual_failed)
-            self._space_view.unavailable.connect(self._start_environment)
-            self._space_view.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            self._space_view.setGeometry(self._scene_stage.rect());self._space_view.show();self._space_view.lower()
-            self._space_fallback.lower()
-            self._space_view.sync({'motion':'reduced' if _read_full_config().get('reduce_motion',False) else 'full'})
+            try:
+                self._space_view = SpatialCoreView(self._scene_stage,'space.html')
+                self._space_view.ready.connect(self._start_environment)
+                self._space_view.ultron_unavailable.connect(self._ultron_visual_failed)
+                self._space_view.unavailable.connect(self._start_environment)
+                self._space_view.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                self._space_view.setGeometry(self._scene_stage.rect());self._space_view.show();self._space_view.lower()
+                self._space_fallback.lower()
+                self._space_view.sync({'motion':'reduced' if _read_full_config().get('reduce_motion',False) else 'full'})
+            except Exception:
+                self._space_view = None
+                self._activate_scene_fallback()
+                self._start_environment()
         else:self._start_environment()
+
+    def _reveal_scene_header(self):
+        if getattr(self, '_scene_header_visible', False):
+            return
+        self._scene_header_visible = True
+        for label in (self._title_lbl, self._clock_lbl, self._date_lbl):
+            label.show()
+            label.raise_()
+
+    def _activate_scene_fallback(self):
+        """Keep the observatory usable when an optional WebGL view is lost.
+
+        The Qt-painted hologram and the static space image are deliberately
+        independent of WebEngine.  A GPU/WebGL failure must therefore never
+        turn into a full-screen terminal error.
+        """
+        if getattr(self, '_scene_fallback_active', False):
+            return
+        self._scene_fallback_active = True
+        for renderer in (getattr(self, '_space_view', None),
+                         getattr(self.hud, '_spatial_core', None)):
+            if renderer is None:
+                continue
+            try:
+                renderer.hide()
+            except (RuntimeError, AttributeError):
+                pass
+        self._log.append_log('SYS: Renderizador 3D indisponivel; usando a cena local de recuperacao.')
 
     def _start_environment(self, loaded=True):
         if not loaded:
@@ -3701,18 +3751,19 @@ class MainWindow(QMainWindow):
         if not self.isVisible() or not getattr(self,'_scene_layout_ready',False):return
         if self._overlay is not None and not self._ready:return
         if not hasattr(self,'_space_fallback'):return
-        if ((self._space_view and self._space_view.failed) or
-                (self.hud.hud_style=='core' and self.hud._spatial_core and self.hud._spatial_core.failed)):
-            if self._opening_veil:self._opening_veil.fail()
-            return
-        if self._space_view and not self._space_view.failed and not self._space_view._ready:return
+        renderer_failed = ((self._space_view and self._space_view.failed) or
+                           (self.hud.hud_style=='core' and self.hud._spatial_core and self.hud._spatial_core.failed))
+        if renderer_failed:
+            self._activate_scene_fallback()
+        fallback_active = getattr(self, '_scene_fallback_active', False)
+        if not fallback_active and self._space_view and not self._space_view.failed and not self._space_view._ready:return
         core=self.hud._spatial_core
-        if self.hud.hud_style=='core':
+        if self.hud.hud_style=='core' and not fallback_active:
             if os.environ.get('QT_QPA_PLATFORM')!='offscreen' and (SpatialCoreView is None or core is None and self.hud._core_attempted):
-                if self._opening_veil:self._opening_veil.fail()
-                return
+                self._activate_scene_fallback()
+                fallback_active = True
             waiting_core=core is None and SpatialCoreView is not None and os.environ.get('QT_QPA_PLATFORM')!='offscreen' and not self.hud._core_attempted
-            if waiting_core or core is not None and not core.failed and not core._ready:return
+            if not fallback_active and (waiting_core or core is not None and not core.failed and not core._ready):return
         first=not self._environment.started
         veil=self._opening_veil
         if first and veil:
@@ -3722,6 +3773,7 @@ class MainWindow(QMainWindow):
                 return
             if veil.isVisible():return
         self._environment.start(self.hud.motion_reduced,delay=400)
+        self._reveal_scene_header()
         if first:
             self._ui_sounds.play('startup')
             QTimer.singleShot(4700,self._restore_saved_pins)
@@ -5803,6 +5855,17 @@ class MainWindow(QMainWindow):
             self._finish_neural_memory(payload.get('requestId'))
         if not payload.get('pending') and payload.get('active') is False:self._finish_neural_memory(payload.get('requestId'))
 
+    def _show_verified_manifestation(self, packet):
+        if packet['cancelled'].is_set():return
+        previous=self._presentation
+        try:
+            self._show_manifestation(packet['model'])
+            packet['accepted']=self._presentation is not None and self._presentation is not previous
+        except Exception:
+            packet['accepted']=False
+        finally:
+            packet['done'].set()
+
     def _show_manifestation(self, data):
         spectro=getattr(self,'_spectro_controller',None)
         if spectro and spectro.active and isinstance(data,dict):
@@ -6343,11 +6406,12 @@ class MainWindow(QMainWindow):
                         if item.get('placement',{}).get('layout'):
                             rect=item['widget'].geometry()
                             item['placement']={'x':rect.x()/width,'y':rect.y()/height,'width':rect.width()/width,'height':rect.height()/height}
+                if not preview and (value or corner not in ('row','column')):raise ValueError('Informe a chave real da previa fixada.')
+                if not self._pin_previews:raise ValueError('Nao ha previas fixadas para organizar.')
                 if corner in ('row','column'):
                     keys=list(self._pin_previews);total=len(keys)
                     for index,key in enumerate(keys):
                         self._pin_previews[key]['placement']={'x':0,'y':0,'layout':corner}
-                elif not preview:raise ValueError('Informe a chave real da previa fixada.')
                 elif corner in corners:
                     from core.pin_layout import arrange
                     width,height=self._scene_stage.width(),self._scene_stage.height()
@@ -7622,6 +7686,9 @@ class MainWindow(QMainWindow):
             return
         self._ready=False
         self._center_split.hide()
+        self._scene_header_visible=False
+        for label in (self._title_lbl,self._clock_lbl,self._date_lbl):
+            label.hide()
         if getattr(self,'_opening_veil',None):
             self._opening_veil.hub_visible=False
             self._opening_veil.update()
@@ -7760,6 +7827,14 @@ class JarvisUI:
         self._win._connection_sig.emit(connected,model)
     def show_manifestation(self, model):
         self._win._manifestation_sig.emit({**model,"narrationDriven":model.get('kind') not in ('status','status-end')})
+
+    def show_verified_manifestation(self, model):
+        packet={'model':dict(model),'done':threading.Event(),'cancelled':threading.Event(),'accepted':False}
+        self._win._verified_manifestation_sig.emit(packet)
+        if not packet['done'].wait(3):
+            packet['cancelled'].set()
+            return False
+        return packet['accepted']
 
     def show_neural_memory(self, payload):
         self._win._neural_sig.emit(payload)

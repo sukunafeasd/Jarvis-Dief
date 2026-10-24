@@ -139,9 +139,11 @@ class AnnotationWindow(QWidget):
 class Annotations:
     def __init__(self,core):self.core=core;self.layers={}
     def show_target(self,physical,text='',shape='outline',color=None):
+        color=annotation_color(color)
         rect,screen=logical_target(physical);self.clear()
         layer=AnnotationWindow(screen,self.core);self.layers[screen.name()]=layer;layer.present(rect,text,shape,color)
     def update_target(self,physical,text='',shape='outline',color=None):
+        color=annotation_color(color)
         rect,screen=logical_target(physical)
         layer=self.layers.get(screen.name())
         if layer is None:self.show_target(physical,text,shape,color)

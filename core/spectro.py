@@ -158,6 +158,7 @@ class SpectroController:
         self._target_shape='outline';self._target_text=''
         self._target_color=None
         self._drawing_window=None
+        self._presence_history=deque(maxlen=12)
         self.observation_timer=QTimer(owner);self.observation_timer.setInterval(500);self.observation_timer.timeout.connect(self._poll)
         self.save_timer=QTimer(owner);self.save_timer.setSingleShot(True);self.save_timer.setInterval(500);self.save_timer.timeout.connect(self._save_preference)
 
@@ -182,6 +183,7 @@ class SpectroController:
                 'audit':observer.audit[-12:] if observer else [],
                 'audit_available':observer.audit_available if observer else True,
                 'opacity':window.windowOpacity() if window else None,
+                'can_undo_presence':bool(self._presence_history),
                 'bounds':bounds(window.geometry()) if window else None,
                 'transition':{'active':moving,'bounds':bounds(destination),'opacity':window.destination_opacity() if window else None}}
 
@@ -250,6 +252,7 @@ class SpectroController:
                 window.dispose();window.close();window.deleteLater();self.window=None;self.active=False;raise
             return {'ok':True,'completed':False,'spectro':self.snapshot()}
         if operation=='exit':
+            self._presence_history.clear()
             if self.save_timer.isActive():self._save_preference()
             self.timeout.stop();self.active=False;self.ready=False
             self.save_timer.stop()
@@ -266,6 +269,15 @@ class SpectroController:
             return self._perception_command(operation,settings)
         window=self.window;rect=window.destination_rect()
         screen=QGuiApplication.screenAt(rect.center()) or window.screen();area=screen.availableGeometry()
+        previous=(QRect(rect),window.destination_opacity())
+        if operation=='undo_presence':
+            if not self._presence_history:raise ValueError('Nao ha ajuste anterior do holograma para desfazer nesta sessao.')
+            old_rect,opacity=self._presence_history.pop()
+            old_screen=QGuiApplication.screenAt(old_rect.center()) or screen
+            window.animate_rect(clamped_rect(old_rect,old_screen.availableGeometry()))
+            window.animate_opacity(opacity)
+            self._manual_position=True;self.save_timer.start()
+            return {'ok':True,'completed':False,'spectro':self.snapshot()}
         if operation=='opacity':
             delta=float(settings.get('delta',0));value=float(settings.get('value',window.destination_opacity()+delta))
             if not math.isfinite(value):raise ValueError('Opacidade invalida.')
@@ -293,6 +305,7 @@ class SpectroController:
             else:raise ValueError('Posicao invalida.')
             window.animate_rect(clamped_rect(rect,area))
         else:raise ValueError('Operacao do Espectro desconhecida.')
+        self._presence_history.append(previous)
         self._manual_position=True;self.save_timer.start()
         moving=any(animation.state()==QPropertyAnimation.State.Running for animation in (window._animation,window._opacity_animation))
         return {'ok':True,'completed':not moving,'spectro':self.snapshot()}
@@ -383,12 +396,15 @@ class SpectroController:
             if self.annotations:self.annotations.clear()
         elif operation=='context':return observer.context()
         elif operation=='highlight':
-            self._drawing_window=None
             shape=settings.get('shape','outline')
             if shape not in ('outline','circle','arrow','marker','underline','cross'):raise ValueError('Forma do destaque invalida.')
             from core.spectro_annotations import annotation_color
-            self._target_color=annotation_color(settings.get('color'))
-            observer.highlight(settings.get('control_id'));self._target_at=time.monotonic()
+            color=annotation_color(settings.get('color'))
+            if settings.get('query') and not settings.get('control_id'):
+                observer.highlight(query=settings['query'])
+            else:observer.highlight(settings.get('control_id'))
+            self._drawing_window=None
+            self._target_color=color;self._target_at=time.monotonic()
             self.annotations.clear()
             self._target_shape=shape;self._target_text=str(settings.get('text',''))[:220]
             return {'ok':True,'completed':False,'speech':'Consultando a posicao atual desse elemento.'}

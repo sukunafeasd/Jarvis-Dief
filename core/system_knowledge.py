@@ -112,10 +112,11 @@ def execution_guide(request,context=None,declarations=None):
         (('memoria','memorias','lembranca','lembrancas','lembra','lembre'),'memory_control','Consultar fatos persistidos; usar paginação e distinguir dado antigo de correção atual.'),
         (('sistema','pc lento','computador lento'),'system_status','Consultar métricas reais e investigar o gargalo antes de propor mudanças.')]
     tool='';steps='';app=''
-    candidates=[]
+    candidates=[];guides={}
     for words,name,description in routes:
         if any(mentions(word) for word in words):
-            if name not in candidates:candidates.append(name)
+            if name not in candidates:
+                candidates.append(name);guides[name]=description
             if not tool:tool=name;steps=description
     if not tool and any(mentions(word) for word in ('internet','google','navegador','site','web')):
         tool='structured_browser';steps='Inspecionar a página gerenciada e agir em control_id recente; verificar após a ação.'
@@ -124,10 +125,16 @@ def execution_guide(request,context=None,declarations=None):
         if app:
             tool='spotify_control' if app=='spotify' and any(item.get('name')=='spotify_control' for item in (declarations or [])) else 'app_control'
             steps='Confirmar app e janela, inspecionar, agir no controle real e verificar o objetivo. Buscar não é reproduzir.'
-    available=None if declarations is None else {item.get('name') for item in declarations}
+    if tool and tool not in candidates:
+        candidates.append(tool);guides[tool]=steps
+    available=None if declarations is None else {item.get('name') for item in declarations if isinstance(item,dict)}
     return {'suggested_tool':tool or None,'tool_available':None if available is None else tool in available,
         'candidate_tools':candidates,'multiple_domains':len(candidates)>1,
         'candidate_availability':{name:None if available is None else name in available for name in candidates},
+        'candidate_guidance':guides,
+        'selection_required':len(candidates)>1,
+        'suggestion_basis':'Correspondencia lexical de dominio; a ordem da lista nao e prioridade de execucao. Resolva dependencias pelo objetivo, dados e estado atual.',
+        'current_context':context.snapshot() if context is not None else {},
         'interpretation':'Correspondencias de dominio, nao intencao confirmada. Relacione com o pedido e contexto; varios dominios podem ser etapas do mesmo objetivo. Pergunte apenas se o alvo ou efeito permanecer ambiguo.',
         'app':app or None,'steps':steps or 'Identificar domínio e consultar ferramentas reais antes de escolher uma ação.',
         'execution_started':False,'needs_actual_observation':True,'data_is_untrusted':True,

@@ -44,7 +44,7 @@ class SettingsTransactionTests(unittest.TestCase):
     def profile_hub(self):
         window=Mock();window.findChildren.return_value=[]
         hub=SimpleNamespace(config_path=self.profile,window=window,notice=Mock(),appearance_notice=Mock(),
-                            selected_color='#12ABCD',_set_panel_sounds_muted=Mock(),animate_entry=Mock(),core_preview=Mock())
+                            selected_color='#12ABCD',_saved_speech_provider='fish_audio',_set_panel_sounds_muted=Mock(),animate_entry=Mock(),core_preview=Mock())
         values={'assistant_name':' Fixture Bot ','name':' Fixture User ','city':' New City ',
                 'interests':' science ','speech_provider':'gemini','visual':'core','voice':'Kore',
                 'count':3,'hold':20,'brief':False,'reduced':True,'panel_sounds_muted':True}

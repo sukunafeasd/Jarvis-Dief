@@ -33,6 +33,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
+from core.action_outcome import DispatchBindingError, dispatch_problem, normalize_dispatch_result
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -99,25 +100,33 @@ class ActionRegistry:
     def run(self, name: str, parameters: dict, ctx: dict | None = None) -> str:
         rec = self._actions.get(name)
         if rec is None or not rec.valid:
-            return f"Action '{name}' is not available."
+            return dispatch_problem('unavailable')
+        if not isinstance(parameters, dict):
+            return dispatch_problem('invalid_arguments')
         try:
-            return _call_handler(rec.handler, parameters, ctx or {}) or 'Concluído.'
+            return normalize_dispatch_result(_call_handler(rec.handler, parameters, ctx or {}))
+        except DispatchBindingError:
+            return dispatch_problem('invalid_handler_contract')
         except Exception as e:
             self._logger(f"Action '{name}' crashed during run(): {e}")
             traceback.print_exc()
-            return f"Tool '{name}' failed: {e}"
+            return dispatch_problem('handler_exception', started=True, exception=e)
 
 
 def _call_handler(fn: Callable, parameters: dict, ctx: dict) -> str:
     """Invoke the handler passing only the context kwargs it actually declares
     (or all of them if it has **kwargs), so each action's existing signature
     works unchanged."""
-    sig = inspect.signature(fn)
-    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-    kwargs = {}
-    for key in _CTX_KEYS:
-        if has_var_kw or key in sig.parameters:
-            kwargs[key] = ctx.get(key)
+    try:
+        sig = inspect.signature(fn)
+        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+        kwargs = {}
+        for key in _CTX_KEYS:
+            if has_var_kw or key in sig.parameters:
+                kwargs[key] = ctx.get(key)
+        sig.bind(parameters=parameters, **kwargs)
+    except (TypeError, ValueError) as error:
+        raise DispatchBindingError() from error
     return fn(parameters=parameters, **kwargs)
 
 

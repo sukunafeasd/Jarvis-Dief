@@ -50,7 +50,14 @@ class ForgeConnection(QWidget):
     def refresh(self):
         if self.busy or not self.isVisible():return
         runtime=getattr(self.hub.window,'_forge_runtime',None)
-        if runtime:self._done(runtime.status())
+        if runtime:
+            self._done(runtime.status())
+            return
+        # Authentication is held by the official Codex client, not by this
+        # settings widget.  A newly opened settings page therefore needs one
+        # non-interactive account read before it can honestly call a previously
+        # connected account "disconnected".
+        self._start(lambda:self.runtime().connect())
 
     def test(self):
         if self.row.status.text() not in ('Conectado','Verificado'):

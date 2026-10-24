@@ -28,6 +28,18 @@ test_briefing_narration test_interface_verification test_forge_project_lookup te
 test_round5_pin_storage test_round5_forge_state test_round5_settings_transactions test_round6_background_lifecycle test_round7_conversation_intent test_round8_context_outcomes test_round9_domain_guidance test_round10_conditional_commands test_round11_natural_domains test_round12_operation_followup test_round13_spoken_style test_spectro test_spectro_complete
 test_connections_and_pins_repair test_free_pins_theme test_settings_connections test_settings_hub test_panel_sound_preference test_spectro_reinforcement test_spectro_continuous_round'''.split()
 VISUAL='test_hologram_polish test_holographic_motion test_motion_latency_round test_render_stress_round test_presentation_sync_contract'.split()
+CORE.extend(['test_intelligence_evolution','test_intelligence_language_corpus','test_memory_topic_continuity','test_spatial_distribution_repair','test_semantic_index_integrity'])
+CORE.append('test_operation_continuity_guard')
+CORE.append('test_contextual_decision_round')
+CORE.append('test_evidence_coverage')
+CORE.append('test_reference_grounding_round')
+CORE.append('test_dispatch_evidence')
+CORE.append('test_recovery_diagnostics')
+CORE.extend(['test_integrated_recovery','test_resource_suite','test_resource_completion','test_essential_plugins'])
+CORE.extend(['test_update_maintenance','test_official_distribution','test_factory_distribution'])
+CORE.append('test_startup_update_speed')
+CORE.append('test_entry_redesign')
+CORE.append('test_incremental_integrity')
 
 
 def main():

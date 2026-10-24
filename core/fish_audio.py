@@ -4,6 +4,7 @@ import re
 import httpx
 import hashlib
 import json
+import time
 from core import integration_tokens
 
 VOICE_ID='82d13948027e4be69892dd3d0104e681'
@@ -39,10 +40,18 @@ def enabled():
 
 
 def selected():
-    """Only an explicit native selection permits native speech on failure."""
+    """Return whether Fish is usable as the selected speech provider.
+
+    A fresh installation has no personal Fish credential. Treating its default
+    voice id as a configured voice used to suppress Gemini audio and left the
+    assistant visibly replying in complete silence.
+    """
     from memory.config_manager import load_api_keys
-    try:return load_api_keys().get('speech_provider','fish_audio')!='gemini'
-    except Exception:return True
+    try:
+        provider=load_api_keys().get('speech_provider','fish_audio')
+        return provider=='fish_audio' and bool(integration_tokens.read('fish_audio').get('token'))
+    except Exception:
+        return False
 
 
 def status():
@@ -54,6 +63,8 @@ def status():
 
 
 async def pcm(text):
+    from core.speech_text import speech_text
+    text=speech_text(text)
     if not text.strip() or len(text)>1800:
         raise ValueError('Texto Fish vazio ou acima do limite; segmente antes da sintese.')
     token=integration_tokens.read('fish_audio').get('token')
@@ -231,6 +242,7 @@ class FishVoiceSession:
         else:self.loop.call_soon_threadsafe(clear)
 
     async def _deliver(self,epoch,text,source,enqueue=None):
+        started=time.monotonic();first_audio=None
         generation=self._generation
         first=True;anchor=self.cursor;received=False;buffer=bytearray();total=0
         remaining=SEGMENT_TIMEOUT_SECONDS
@@ -250,6 +262,7 @@ class FishVoiceSession:
                 while len(buffer)>=PCM_CHUNK_BYTES:
                     if not self._active(epoch) or generation!=self._generation:return
                     if not await send(epoch,bytes(buffer[:PCM_CHUNK_BYTES])):return
+                    if first_audio is None:first_audio=time.monotonic()-started
                     del buffer[:PCM_CHUNK_BYTES];received=True
                     if first and enqueue is None:
                         self.owner.ui.narration_text(text,at=anchor,duration=None);first=False
@@ -261,6 +274,8 @@ class FishVoiceSession:
                 if first and enqueue is None:self.owner.ui.narration_text(text,at=anchor,duration=None)
             if not received:raise ValueError('Fish Audio retornou audio vazio.')
         finally:
+            from core.runtime_metrics import record
+            record('fish_pcm',started,'received' if received else 'no_audio',first_audio_seconds=first_audio)
             close=getattr(iterator,'aclose',None)
             if close:await close()
 
@@ -329,7 +344,13 @@ class FishVoiceSession:
                     while not self.queue.empty():self.queue.get_nowait();self.queue.task_done()
                     self._queued_chars=0
                     reason='tempo limite' if isinstance(error,TimeoutError) else 'provedor ou PCM'
-                    self.owner.ui.write_log('SYS: Falha Fish ('+reason+'); fala encerrada. Resposta disponivel na conversa.')
+                    self.owner.ui.write_log('SYS: Falha Fish ('+reason+'); mudando para a voz nativa desta sessao.')
+                    # Rebuild with native audio for the next reply instead of
+                    # leaving the assistant selected-but-silent.
+                    reconnect=getattr(self.owner,'request_reconnect',None)
+                    if callable(reconnect):
+                        self.owner._fish_native_fallback=True
+                        reconnect(keep_context=True,reason='falha temporaria da voz Fish')
                 return
             finally:
                 if not producer.done():producer.cancel()

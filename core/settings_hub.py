@@ -105,7 +105,13 @@ class SettingsHub(SettingsSurface):
         self.color_button.clicked.connect(self.pick_color); self._update_swatch(); form.addRow('Cor do holograma',self.color_button)
         voice_section=SettingsSection('VOZ E ÁUDIO','Voz principal e dispositivos de áudio.','volume-2');appearance_layout.addWidget(voice_section);form=voice_section.form
         self.speech_provider=QComboBox();self.speech_provider.addItem('Fish Audio · voz DIEF JARVIS','fish_audio');self.speech_provider.addItem('Voz nativa da IA','gemini')
-        self.speech_provider.setCurrentIndex(1 if cfg.get('speech_provider','fish_audio')=='gemini' else 0);self.speech_provider.setMaximumWidth(320);form.addRow('Voz principal',self.speech_provider)
+        from core.fish_audio import status as fish_status
+        fish_ready=bool(fish_status().get('configured'))
+        selected=cfg.get('speech_provider','fish_audio')
+        # No personal key is bundled with the app. A new installation must
+        # speak immediately instead of selecting a silent provider.
+        self.speech_provider.setCurrentIndex(0 if selected=='fish_audio' and fish_ready else 1);self.speech_provider.setMaximumWidth(320);form.addRow('Voz principal',self.speech_provider)
+        self._saved_speech_provider=selected
         fish_settings=QPushButton('Configurar voz Fish Audio');fish_settings.clicked.connect(lambda:self.open_plugin_settings('fish_audio'));form.addRow(fish_settings)
         from memory.config_manager import AVAILABLE_VOICES, DEFAULT_VOICE
         self.voice = QComboBox(); self.voice.addItems(AVAILABLE_VOICES); self.voice.setCurrentText(cfg.get('voice_name') or DEFAULT_VOICE); self.voice.setMaximumWidth(320); form.addRow('Voz nativa da IA',self.voice)
@@ -448,8 +454,10 @@ class SettingsHub(SettingsSurface):
             if panel: panel.surface.set_motion_reduced(self.reduced.isChecked())
         self.animate_entry()
         self.core_preview.sync_preview()
-        if self.window.on_voice_change:
+        provider=self.speech_provider.currentData()
+        if provider!=self._saved_speech_provider and self.window.on_voice_change:
             self.window.on_voice_change()
+        self._saved_speech_provider=provider
         self.notice.setText("Perfil salvo. Clima e notícias usam essas preferências nas próximas consultas.")
         self.appearance_notice.setText('Aparência salva.')
 

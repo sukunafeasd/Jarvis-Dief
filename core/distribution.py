@@ -126,6 +126,29 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 
+def prepare_spatial_access(application):
+    """Allow the current user's restricted renderer to read public assets.
+
+    Elevated mkdtemp directories belong to Administrators on Windows. Chromium
+    drops that group in its renderer, so inherited staging ACLs block modules.
+    Grant read/execute only to the static scene tree; private data stays separate.
+    """
+    if os.name != 'nt':
+        return
+    scene = Path(application) / 'core' / 'spatial'
+    if not scene.is_dir():
+        return
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    identity = subprocess.run(['whoami.exe', '/user', '/fo', 'csv', '/nh'],
+        capture_output=True, check=True, timeout=15, creationflags=flags)
+    match = re.search(rb'S-1-5-(?:\d+-)+\d+', identity.stdout)
+    if not match:
+        raise RuntimeError('Nao foi possivel identificar o usuario para preparar a cena.')
+    sid = match.group().decode('ascii')
+    subprocess.run(['icacls.exe', str(scene), '/grant', '*' + sid + ':(OI)(CI)(RX)', '/T', '/Q'],
+        capture_output=True, check=True, timeout=60, creationflags=flags)
+
+
 class Installation:
     def __init__(self, root):
         self.root = Path(root).resolve()
@@ -207,6 +230,7 @@ class Installation:
             required = ('main.py','requirements.txt','core/startup.py','config/defaults.json','memory/config_manager.py')
             if not all((app/file).is_file() for file in required): raise ValueError('Aplicativo incompleto.')
             if json.loads((app/'VERSION.json').read_text(encoding='utf-8'))['version'] != number: raise ValueError('Versao interna divergente.')
+            prepare_spatial_access(app)
             if (stage/'runtime').exists() and not (stage/'runtime/python.exe').is_file():raise ValueError('Runtime incompleto.')
             progress('Arquivos', 'Organizando contas e memoria separadamente', 'working')
             for folder in ('config','memory'):
@@ -253,6 +277,32 @@ class Installation:
 
     def confirm(self):
         state = self.state(); state['pending'] = False; atomic_json(self.state_file, state)
+        # Cleanup is maintenance, never a reason to roll back a healthy launch.
+        try:self.prune()
+        except OSError:pass
+
+    def prune(self):
+        state=self.state()
+        if state.get('pending') or self.journal.exists() or not state.get('current'):return []
+        keep={state.get('current'),state.get('previous')}
+        versions=self.root/'versions'
+        removed=[]
+        if versions.is_symlink() or versions.is_junction():return removed
+        if versions.is_dir():
+            for path in versions.iterdir():
+                if path.name in keep or not re.fullmatch(r'\d+\.\d+\.\d+',path.name):continue
+                if not path.is_dir() or path.is_symlink() or path.is_junction():continue
+                if path.resolve().parent!=versions.resolve():continue
+                try:self.discard(path);removed.append(path.name)
+                except OSError:continue
+        for path in self.root.glob('runtime-backup-*'):
+            if state.get('runtime_changed') and path.name==state.get('runtime_backup'):continue
+            if not re.fullmatch(r'runtime-backup-[a-f0-9]{32}',path.name):continue
+            if not path.is_dir() or path.is_symlink() or path.is_junction():continue
+            if path.resolve().parent!=self.root:continue
+            try:self.discard(path);removed.append(path.name)
+            except OSError:continue
+        return removed
 
     def rollback(self):
         state = self.state()
@@ -283,6 +333,7 @@ class Installation:
             try:run([str(executable),'-I','-c','import pip,ssl,venv'],stop,timeout=30)
             except InterruptedError:raise
             except Exception:self.discard(self.root/'environment')
+            else:return executable
         if not executable.exists():
             run([str(self.root/'runtime/python.exe'),'-I','-m','venv',str(self.root/'environment')], stop)
         if not executable.exists(): raise RuntimeError('Ambiente Python nao foi criado.')
@@ -316,8 +367,23 @@ def prepare_dependencies(python, application, progress, stop):
     progress('Dependências', 'Verificando e reparando pacotes desta versao', 'working')
     locked=application/'requirements-win.lock'
     requirements=locked if locked.exists() else application/'requirements.txt'
-    run([str(python),'-I','-m','pip','--isolated','install','--no-input','--disable-pip-version-check',
-        '--index-url','https://pypi.org/simple',*(['--require-hashes'] if locked.exists() else []),'-r',str(requirements)], stop)
+    stamp=Path(python).resolve().parents[1]/'dependency-state.json'
+    state_command=[str(python),'-I',str(application/'core/dependency_integrity.py'),
+                   '--requirements',str(requirements),'--stamp',str(stamp)]
+    modern=True
+    try:run([str(python),'-I',str(application/'core/dependency_integrity.py'),'--state-capability'],stop,timeout=30)
+    except InterruptedError:raise
+    except RuntimeError:modern=False
+    ready=False
+    if modern:
+        try:run([*state_command,'--check-state'],stop,timeout=30);ready=True
+        except InterruptedError:raise
+        except RuntimeError:pass
+    if not ready:
+        run([str(python),'-I','-m','pip','--isolated','install','--no-input','--disable-pip-version-check',
+            '--index-url','https://pypi.org/simple',*(['--require-hashes'] if locked.exists() else []),'-r',str(requirements)], stop)
+    else:
+        progress('Dependências','Versoes conferidas; verificando integridade local','working')
     from core.dependency_integrity import repair
     repair(python,application,progress,stop)
     from core.installer_process import environment
@@ -331,4 +397,5 @@ def prepare_dependencies(python, application, progress, stop):
         progress('Dependências','Preparando o navegador privado de automacao','working')
         run([str(python),'-I','-m','playwright','install','chromium'],stop,env=env)
         run([str(python),'-I','-c',check],stop,timeout=30,env=env)
+    if modern:run([*state_command,'--record-state'],stop,timeout=30)
     progress('Dependências', 'Ambiente Python preparado', 'ok')

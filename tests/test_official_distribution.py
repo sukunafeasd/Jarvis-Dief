@@ -96,6 +96,26 @@ class OfficialDistributionTests(unittest.TestCase):
             patch.object(desktop_launcher,'run_probe') as probe,patch.object(desktop_launcher,'install_launcher'):
             value=desktop_launcher.prepare(self.installation.root,lambda *args:None,self.stop,fetch=lambda:(_ for _ in ()).throw(OSError('offline')))
         self.assertEqual(value[2],app);probe.assert_called_once()
+
+    def test_opening_upgrades_one_to_two_and_preserves_accounts(self):
+        import desktop_launcher
+        self.install(self.package('1.0.0'));self.installation.confirm()
+        personal=self.installation.root/'data/config/api_keys.json'
+        personal.write_text('{"fixture":"preserved"}')
+        release=self.package('2.0.7')
+        with patch('core.distribution.download',side_effect=self.local_download),\
+            patch.object(Installation,'prepare_python',return_value=Path('python.exe')),\
+            patch.object(desktop_launcher,'prepare_dependencies') as dependencies,\
+            patch.object(desktop_launcher,'run_probe') as probe,\
+            patch.object(desktop_launcher,'install_launcher'):
+            ready=desktop_launcher.prepare(self.installation.root,lambda *args:None,self.stop,fetch=lambda:release)
+        self.assertEqual(ready[2],self.installation.application('2.0.7'))
+        self.assertTrue(self.installation.state()['pending'])
+        self.assertEqual(personal.read_text(),'{"fixture":"preserved"}')
+        dependencies.assert_called_once();probe.assert_called_once()
+        self.installation.confirm()
+        self.assertFalse(self.installation.state()['pending'])
+        self.assertTrue(self.installation.application('1.0.0').exists())
     def test_health_marker_cannot_write_outside_managed_sessions(self):
         from core.distribution_health import confirm_window
         sessions=self.installation.root/'sessions';sessions.mkdir()

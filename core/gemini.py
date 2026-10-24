@@ -320,7 +320,8 @@ def client(timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = ""):
         raise RuntimeError("no Gemini API key is configured")
     return genai.Client(
         api_key=key,
-        http_options=gtypes.HttpOptions(timeout=max(MIN_TIMEOUT_MS, int(timeout_ms))),
+        http_options=gtypes.HttpOptions(timeout=max(50, int(timeout_ms)),
+                                      retry_options=gtypes.HttpRetryOptions(attempts=1)),
     )
 
 
@@ -400,13 +401,15 @@ async def _live_turn(parts: list, system: str, key: str, timeout_s: float) -> st
                 sc = getattr(resp, "server_content", None)
                 if sc and sc.output_transcription and sc.output_transcription.text:
                     chunks.append(sc.output_transcription.text)
+                if sc and getattr(sc,'turn_complete',False):return True
+            return False
 
-        await asyncio.wait_for(drain(), timeout=timeout_s)
+        complete=await asyncio.wait_for(drain(), timeout=timeout_s)
         # The transcription can trail the audio turn by a beat; a short second
         # drain stops a reply being cut mid-token. chat_takeover learned this
         # the same way and for the same reason.
         try:
-            await asyncio.wait_for(drain(), timeout=1.5)
+            if not complete:await asyncio.wait_for(drain(), timeout=1.5)
         except asyncio.TimeoutError:
             pass
         return "".join(chunks).strip()
@@ -438,7 +441,9 @@ def _live_call(contents, config, timeout_ms: int, key: str):
     if not parts:
         return None
 
-    if not _LIVE_SLOTS.acquire(timeout=_LIVE_SLOT_WAIT):
+    started=time.monotonic()
+    budget=max(.05,timeout_ms/1000.)
+    if not _LIVE_SLOTS.acquire(timeout=min(_LIVE_SLOT_WAIT,budget)):
         # Every slot is busy. Do not wait it out: falling to REST costs less
         # than holding a session the user's conversation might want.
         raise RuntimeError("no free Live slot — leaving them for the conversation")
@@ -447,17 +452,23 @@ def _live_call(contents, config, timeout_ms: int, key: str):
 
     def runner():
         try:
-            box["text"] = asyncio.run(
-                _live_turn(parts, str(system), key, max(10.0, timeout_ms / 1000.0)))
+            async def bounded():
+                remaining=max(.01,budget-(time.monotonic()-started))
+                return await asyncio.wait_for(_live_turn(parts,str(system),key,remaining),remaining)
+            box["text"] = asyncio.run(bounded())
         except BaseException as e:                     # noqa: BLE001
             box["error"] = e
+        finally:
+            _LIVE_SLOTS.release()
 
     try:
         th = threading.Thread(target=runner, daemon=True, name="gemini-live-oneshot")
         th.start()
-        th.join(timeout=max(15.0, timeout_ms / 1000.0 + 20.0))
-    finally:
+    except BaseException:
         _LIVE_SLOTS.release()
+        raise
+    th.join(timeout=max(.01,budget-(time.monotonic()-started)))
+    if th.is_alive():raise TimeoutError('Prazo da consulta auxiliar esgotado.')
     if "error" in box:
         raise box["error"]
     text = box.get("text")
@@ -488,22 +499,33 @@ def call(contents, tier: str = FAST, config=None,
         print("[Gemini] no Gemini API key is configured")
         return None
 
-    cl = None
+    started=time.monotonic()
+    deadline=started+max(.05,timeout_ms/1000.)
+    from core.runtime_metrics import record as metric
     tried = [m for m in ladder if not _cooling(m)] or list(ladder)
     for model in tried:
+        remaining=int((deadline-time.monotonic())*1000)
+        if remaining<=0:break
+        attempt=time.monotonic()
         try:
             if model == LIVE:
-                reply = _live_call(contents, config, timeout_ms, resolved_key)
+                reply = _live_call(contents, config, remaining, resolved_key)
                 if reply is not None:
+                    metric('model',attempt,'success',model=model,tier=tier,estimated_cost=None)
                     return reply
                 raise RuntimeError("the Live turn came back empty")
-            if cl is None:
-                cl = client(timeout_ms=timeout_ms, key=resolved_key)
+            cl = client(timeout_ms=remaining, key=resolved_key)
             kwargs = {"model": model, "contents": contents}
             if config is not None:
                 kwargs["config"] = config
-            return cl.models.generate_content(**kwargs)
+            reply=cl.models.generate_content(**kwargs)
+            usage=getattr(reply,'usage_metadata',None)
+            metric('model',attempt,'success',model=model,tier=tier,
+                   input_tokens=getattr(usage,'prompt_token_count',None),
+                   output_tokens=getattr(usage,'candidates_token_count',None),estimated_cost=None)
+            return reply
         except Exception as e:
+            metric('model',attempt,type(e).__name__,model=model,tier=tier,estimated_cost=None)
             msg = str(e)
             if is_quota_error(msg):
                 _cool(model)

@@ -105,7 +105,7 @@ class FuiScreenTests(unittest.TestCase):
         def optional_missing(name,*args,**kwargs):
             if name.startswith(('PIL','PyQt6')):raise ImportError('test dependency unavailable')
             return original(name,*args,**kwargs)
-        root=tk.Tk();root.geometry('660x440');root.title('DIEF JARVIS · Teste visual')
+        root=tk.Tk();root.geometry('840x580');root.title('DIEF JARVIS · Teste visual')
         try:
             with patch('builtins.__import__',side_effect=optional_missing):surface=BootstrapSurface(root)
             self.assertIsNone(surface.photo)
@@ -120,7 +120,7 @@ class FuiScreenTests(unittest.TestCase):
             self.assertEqual(count,len(surface.canvas.find_all()))
             root.update_idletasks()
             for label in surface.rows.values():
-                self.assertLess(label.winfo_y()+label.winfo_height(),440)
+                self.assertLess(label.winfo_y()+label.winfo_height(),surface.progress_y)
         finally:root.destroy()
 
 

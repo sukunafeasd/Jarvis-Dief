@@ -18,6 +18,18 @@ def owner(maxsize=0):
 PCM = b''.join(struct.pack('<h', (i % 200) * 100 - 10000) for i in range(3600))
 
 
+class SelectionTests(unittest.TestCase):
+    def test_fish_is_not_selected_without_a_protected_token(self):
+        with patch('memory.config_manager.load_api_keys', return_value={'speech_provider':'fish_audio'}), \
+             patch.object(fish.integration_tokens, 'read', return_value={}):
+            self.assertFalse(fish.selected())
+
+    def test_fish_stays_selected_when_the_person_configured_it(self):
+        with patch('memory.config_manager.load_api_keys', return_value={'speech_provider':'fish_audio'}), \
+             patch.object(fish.integration_tokens, 'read', return_value={'token':'test-only'}):
+            self.assertTrue(fish.selected())
+
+
 class DeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.owner = owner()

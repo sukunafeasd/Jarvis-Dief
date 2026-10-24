@@ -8,7 +8,7 @@ def progress(*entry):print(json.dumps(entry,ensure_ascii=True),flush=True)
 
 
 if __name__=='__main__':
-    try:ok=check_startup(progress,threading.Event(),install=False)
+    try:ok=check_startup(progress,threading.Event(),install=False,verify_connections=False)
     except Exception as error:
         progress('Arquivos','Verificacao interrompida: '+type(error).__name__,'error');ok=False
     raise SystemExit(0 if ok else 1)

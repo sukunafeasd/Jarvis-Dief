@@ -43,7 +43,7 @@ def missing_dependencies():
     return missing
 
 
-def check_startup(progress, stop, install=True):
+def check_startup(progress, stop, install=True, verify_connections=True):
     progress('Dependências', 'Verificando ambiente Python', 'working')
     missing = missing_dependencies()
     if missing:
@@ -73,7 +73,9 @@ def check_startup(progress, stop, install=True):
             return False
     progress('Dependências', 'Pacotes declarados disponíveis', 'ok')
     assets = ('core/face_model.obj', 'core/prompt.txt', 'core/spatial/viewer.mjs',
-              'core/spatial/presentation.html')
+              'core/spatial/presentation.html',
+              'core/spatial/vendor/package/build/three.module.js',
+              'core/spatial/vendor/package/build/three.core.js')
     absent = [path for path in assets if not (BASE / path).is_file()]
     progress('Arquivos', 'Arquivos essenciais disponíveis' if not absent else 'Arquivos essenciais ausentes', 'ok' if not absent else 'error')
     if absent or stop.is_set():
@@ -98,6 +100,14 @@ def check_startup(progress, stop, install=True):
     except (OSError, ValueError):
         configured = False
     progress('IA', 'Credencial salva; conexão será validada no painel' if configured else 'Configuração da IA pendente', 'pending')
+    return check_connections(progress,stop,verify_connections)
+
+
+def check_connections(progress, stop, verify_remote=True):
+    if stop.is_set():return False
+    if not verify_remote:
+        progress('Conexões','Verificação online disponível no painel; não bloqueia a abertura','pending')
+        return True
     from core import gmail_connection as gmail
     if gmail.status()['connected']:
         progress('Gmail', 'Testando autorização com o Google', 'working')
@@ -128,7 +138,7 @@ def bootstrap():
     brand_tk_window(root)
     root.overrideredirect(True)
     root.configure(bg='#050d12'); root.resizable(False, False)
-    width, height = 660, 440
+    width, height = 840, 580
     root.geometry(f'{width}x{height}+{max(0,(root.winfo_screenwidth()-width)//2)}+{max(0,(root.winfo_screenheight()-height)//2)}')
     from core.fui_bootstrap import BootstrapSurface
     surface=BootstrapSurface(root,width,height,reduced=visual_motion_reduced())

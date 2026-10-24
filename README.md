@@ -1,9 +1,16 @@
-# DIEF JARVIS 2.0
+# DIEF JARVIS 2.1
 
 Assistente desktop em portugues para Windows 10/11 x64, com interface espacial,
 nucleo holografico, voz, memoria local e integracoes configuradas pelo usuario.
 
-## Novidades da 2.0
+## Atualizacao 2.1: reparos e estabilidade
+
+A versao 2.1.0 reune as correcoes posteriores a 2.0 em voz, noticias,
+contexto, comandos, conexoes e atualizacao Windows. E uma atualizacao de
+manutencao, preservando os modos existentes e os dados locais.
+Veja o [historico de alteracoes](CHANGELOG.md).
+
+## Recursos existentes
 
 - Modo Espectro: holograma no desktop, observacao da janela ativa, notas,
   marca-texto, setas, cores e desenhos temporarios. Diga "pare de observar"
@@ -51,12 +58,17 @@ Manifestos de atualizacao usam Ed25519 e os pacotes sao conferidos por SHA-256.
 ## Atualizar
 
 Abra pelo atalho DIEF JARVIS. A verificacao inicial consulta somente releases
-estaveis do repositorio oficial. Uma versao mais recente e preparada antes de
-abrir o aplicativo. Falha de rede mantem a versao instalada; falha de abertura
+estaveis do repositorio oficial. A partir desta versao, uma atualizacao
+disponivel pode ser instalada pela tela inicial; o aplicativo tambem verifica
+novidades durante o uso. Falha de rede mantem a versao instalada; falha de abertura
 preserva a anterior. Contas e memoria nao fazem parte dos pacotes de release.
 Uma atualizacao rejeitada nao e repetida a cada abertura.
 O EXE inicial tambem e atualizado; sua substituicao ocorre ao encerrar uma
 sessao bem-sucedida, quando o Windows libera o arquivo em uso.
+
+Usuarios da 1.0 e 2.0 usam o mesmo canal de atualizacao. Se uma instalacao
+antiga nao conseguir atualizar, baixe o novo DIEF-JARVIS-Setup.exe no link
+acima e execute-o no mesmo usuario do Windows. Nao apague a pasta de dados.
 
 ## Conectar
 

@@ -37,6 +37,8 @@ def verify_result(action,value,result,setting=''):
     elif action=='move_pin':
         key=pin_target(value)
         selected=next((item for item in pins if item.get('kind')==key),None)
+        named_slots={'bottom_left':0,'bottom_right':1,'upper_left':2,
+                     'upper_right':3,'middle_left':4,'middle_right':5}
         viewport=screen.get('scene_viewport',screen.get('pin_layout',{}).get('viewport',{}))
         width,height=viewport.get('width',0),viewport.get('height',0)
         if screen.get('layout_animating'):
@@ -56,6 +58,8 @@ def verify_result(action,value,result,setting=''):
                     checks.extend(abs(bounds[name]-requested[name]*(width if name in ('x','width') else height))<=2
                         for name in ('x','y','width','height') if name in requested)
                     result['resolved_bounds']=bounds
+                elif setting in named_slots:
+                    checks.append(selected.get('slot')==named_slots[setting])
                 elif setting:
                     checks=[]
         elif not selected:checks=[False]

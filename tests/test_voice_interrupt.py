@@ -101,6 +101,7 @@ def assistant_fixture():
     assistant._interrupted=False;assistant._response_epoch=0;assistant._barge_pending=False
     assistant._server_turn_open=True
     assistant._cancelled_tool_ids=set();assistant._resume_handle=None
+    assistant._fish_native_fallback=False
     assistant._out_latency=.1;assistant._tail_until=0.;assistant._out_level=.2;assistant._play_cursor=0.
     assistant._voice_interrupt=VoiceInterruptGate(Mock());assistant._echo=EchoGuard();assistant._visemes=Mock()
     assistant._cancel_context_refresh=Mock();assistant._queue_daily_briefing=Mock()

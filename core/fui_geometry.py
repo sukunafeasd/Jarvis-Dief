@@ -51,6 +51,40 @@ def core_lines(seconds):
     return lines,vertices
 
 
+def entry_lines(seconds):
+    """Independent entry reactor: depth-sorted shell, plasma and tilted orbits."""
+    def project(x,y,z):
+        a=seconds*.13
+        x,z=x*math.cos(a)+z*math.sin(a),z*math.cos(a)-x*math.sin(a)
+        y,z=y*.94-z*.34,y*.34+z*.94
+        scale=1/(1-z*.13)
+        return x*scale,y*scale,z
+    lines=[]
+    points,links=_shell()
+    vertices=[project(*p) for p in points]
+    lines.extend((vertices[a],vertices[b],'shell') for a,b in links)
+    for band in range(11):
+        latitude=(band+1)*math.pi/12
+        ring=[project(math.cos(a)*math.sin(latitude),math.cos(latitude),math.sin(a)*math.sin(latitude)) for a in (i*math.tau/64 for i in range(65))]
+        lines.extend((ring[i],ring[i+1],'shell') for i in range(64) if i%16<12)
+    for strand in range(5):
+        ring=[]
+        for i in range(73):
+            a=i*math.tau/72
+            r=.25+.08*math.sin(a*5+seconds*1.1+strand)
+            ring.append(project(r*math.cos(a),r*math.sin(a)*math.cos(strand),r*math.sin(a)*math.sin(strand)))
+        lines.extend((ring[i],ring[i+1],'heart') for i in range(72))
+    for band in range(3):
+        ring=[]
+        tilt=.35+band*.85
+        for i in range(97):
+            a=i*math.tau/96+seconds*(.08 if band%2 else -.10)
+            x,y=1.24*math.cos(a),1.24*math.sin(a)
+            ring.append(project(x,y*math.cos(tilt),y*math.sin(tilt)))
+        lines.extend((ring[i],ring[i+1],'orbit') for i in range(96) if i%24<19)
+    return lines,vertices
+
+
 def chamfer_points(width,height,inset=5,cut=16):
     return (inset+cut,inset,width-inset-cut,inset,width-inset,inset+cut,
         width-inset,height-inset-cut,width-inset-cut,height-inset,

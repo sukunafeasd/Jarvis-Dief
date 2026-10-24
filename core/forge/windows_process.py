@@ -163,6 +163,22 @@ class WindowsProcess:
         self.security = {'child_elevated': False, 'integrity': 'medium_or_lower',
                          'host_elevated': host_elevated, 'job_kill_on_close': True}
         self.pumps = []
+
+        def publish(callback):
+            """Best-effort handoff from a pipe thread to the owning loop.
+
+            Process pipes can drain a few milliseconds after the FORJA loop is
+            gone.  That is a normal shutdown race, not an unhandled worker
+            failure and not a reason to resurrect a closed runtime.
+            """
+            if loop.is_closed():
+                return False
+            try:
+                loop.call_soon_threadsafe(callback)
+                return True
+            except RuntimeError:
+                return False
+
         for fd, reader in ((fds[1], self.stdout), (fds[2], self.stderr)):
             def pump(fd=fd, reader=reader):
                 try:
@@ -175,7 +191,8 @@ class WindowsProcess:
                         def feed(data=chunk):
                             reader.feed_data(data)
                             delivered.set()
-                        loop.call_soon_threadsafe(feed)
+                        if not publish(feed):
+                            break
                         if not delivered.wait(3):
                             break
                         while len(reader._buffer) > 1024 * 1024 and self.returncode is None:
@@ -184,7 +201,7 @@ class WindowsProcess:
                     pass
                 finally:
                     os.close(fd)
-                    loop.call_soon_threadsafe(reader.feed_eof)
+                    publish(reader.feed_eof)
             thread = threading.Thread(target=pump, name='ForgePipe', daemon=True)
             thread.start()
             self.pumps.append(thread)
@@ -196,7 +213,7 @@ class WindowsProcess:
             def done():
                 if not self.exit.done():
                     self.exit.set_result(self.returncode)
-            loop.call_soon_threadsafe(done)
+            publish(done)
         self.watcher = threading.Thread(target=watch, name='ForgeProcess', daemon=True)
         self.watcher.start()
 

@@ -3,12 +3,29 @@ import asyncio
 import re
 import threading
 import unicodedata
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-PROFILE = Path(__file__).resolve().parents[1] / "config/whatsapp_web"
+from core.local_data import ROOT as DATA_ROOT
+
+# The browser profile is personal account data, not versioned application data.
+# Keeping it under an unpacked version made an update look like a logout.
+PROFILE = DATA_ROOT / 'whatsapp_web'
+LEGACY_PROFILE = Path(__file__).resolve().parents[1] / "config/whatsapp_web"
 
 SEARCH_NAME = re.compile(r"pesquis|buscar|busca|procur|search", re.IGNORECASE)
+
+
+def ensure_profile_location():
+    if PROFILE.exists() or not LEGACY_PROFILE.is_dir():
+        return
+    try:
+        PROFILE.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(LEGACY_PROFILE, PROFILE, dirs_exist_ok=True)
+    except OSError:
+        # An empty profile can still show the visible QR linker.
+        pass
 
 
 def contact_key(value):
@@ -368,6 +385,25 @@ class WhatsAppWeb:
         self.ready = threading.Event()
         self.start_lock = threading.Lock()
 
+    def _ensure_worker(self):
+        """Start a usable event loop, including after a failed browser worker.
+
+        A timed-out Playwright worker used to leave ``self.loop`` populated but
+        unusable. Every later "Reconectar" then failed before it could open the
+        visible QR window.
+        """
+        with self.start_lock:
+            if self.loop is not None and not self.loop.is_closed():
+                return True
+            self.loop = None
+            self.context = None
+            self.page = None
+            self.pw = None
+            self.background = None
+            self.ready = threading.Event()
+            threading.Thread(target=self._worker, daemon=True, name="WhatsAppWeb").start()
+            return self.ready.wait(5)
+
     def _worker(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
@@ -382,6 +418,7 @@ class WhatsAppWeb:
             self.background = None
 
     async def _ensure_session(self, background):
+        ensure_profile_location()
         usable = self.page is not None and not self.page.is_closed()
         linked_visible = (self.context is not None and usable and background and
                           self.background is False and await self._connected())
@@ -446,15 +483,22 @@ class WhatsAppWeb:
             return {"ok": False, "error": "Ação inválida."}
 
     def call(self, action, receiver="", message="", limit=10):
-        with self.start_lock:
-            if self.loop is None:
-                if action != "connect" and not PROFILE.exists():
-                    return {"ok": action == "status", "connected": False,
-                            "error": "WhatsApp Web ainda não conectado nas Conexões."}
-                threading.Thread(target=self._worker, daemon=True, name="WhatsAppWeb").start()
-                if not self.ready.wait(5):
-                    return {'ok': False, 'error': 'O serviço do WhatsApp não iniciou a tempo. Tente novamente.'}
-        future = asyncio.run_coroutine_threadsafe(self._execute(action, receiver, message, limit), self.loop)
+        ensure_profile_location()
+        if action != "connect" and not PROFILE.exists():
+            return {"ok": action == "status", "connected": False,
+                    "error": "WhatsApp Web ainda não conectado nas Conexões."}
+        if not self._ensure_worker():
+            return {'ok': False, 'error': 'O serviço do WhatsApp não iniciou a tempo. Tente novamente.'}
+        try:
+            future = asyncio.run_coroutine_threadsafe(self._execute(action, receiver, message, limit), self.loop)
+        except RuntimeError:
+            # The old worker is gone. Recreate it once rather than making the
+            # user restart the entire JARVIS for a QR reconnect.
+            with self.start_lock:
+                self.loop = None
+            if not self._ensure_worker():
+                return {'ok': False, 'error': 'O serviço do WhatsApp reiniciou, mas não ficou disponível.'}
+            future = asyncio.run_coroutine_threadsafe(self._execute(action, receiver, message, limit), self.loop)
         try:
             return future.result(timeout=75)
         except Exception as error:

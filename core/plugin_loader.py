@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from memory.config_manager import get_plugin_enabled, load_api_keys
+from core.action_outcome import DispatchBindingError, dispatch_problem, normalize_dispatch_result
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -94,16 +95,20 @@ class PluginRegistry:
     def run(self, name: str, parameters: dict, player=None, session_memory=None) -> str:
         rec = self._plugins.get(name)
         if rec is None or not rec.valid:
-            return f"O plugin '{name}' não está disponível."
+            return dispatch_problem('unavailable')
         if not get_plugin_enabled(name):
-            return f"O plugin '{name}' está desativado."
+            return dispatch_problem('disabled')
+        if not isinstance(parameters, dict):
+            return dispatch_problem('invalid_arguments')
         try:
-            return _call_run(rec.run, parameters, player, session_memory) or "Concluído."
+            return normalize_dispatch_result(_call_run(rec.run, parameters, player, session_memory))
+        except DispatchBindingError:
+            return dispatch_problem('invalid_handler_contract')
         except Exception as e:
             self._logger(f"Plugin '{name}' crashed during run(): {e}")
             self._notify(f"Falha no plugin '{name}'. Consulte os detalhes na atividade.")
             traceback.print_exc()
-            return f"O plugin '{name}' falhou: {e}"
+            return dispatch_problem('handler_exception', started=True, exception=e)
 
     # -- called by ui.py's settings tab to render per-plugin config forms --
     def settings_schemas(self) -> list[dict]:
@@ -156,13 +161,17 @@ class PluginRegistry:
 def _call_run(run_fn, parameters, player, session_memory):
     """Invoke run() passing only the kwargs it actually declares (or all of them
     if it has **kwargs), so a minimal `def run(parameters):` plugin still works."""
-    sig = inspect.signature(run_fn)
-    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-    kwargs = {}
-    if has_var_kw or "player" in sig.parameters:
-        kwargs["player"] = player
-    if has_var_kw or "session_memory" in sig.parameters:
-        kwargs["session_memory"] = session_memory
+    try:
+        sig = inspect.signature(run_fn)
+        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+        kwargs = {}
+        if has_var_kw or "player" in sig.parameters:
+            kwargs["player"] = player
+        if has_var_kw or "session_memory" in sig.parameters:
+            kwargs["session_memory"] = session_memory
+        sig.bind(parameters, **kwargs)
+    except (TypeError, ValueError) as error:
+        raise DispatchBindingError() from error
     return run_fn(parameters, **kwargs)
 
 

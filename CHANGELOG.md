@@ -1,5 +1,27 @@
 # Historico
 
+## 2.1.0 - Reparos e estabilidade
+
+- Reune as correcoes locais posteriores a 2.0: voz, noticias, contexto,
+  comandos, conexoes, interface e distribuicao Windows.
+- Recuperacao de sessoes de voz, tratamento de renovacao da conexao e
+  normalizacao de texto para reduzir leitura literal de marcacao e simbolos.
+- Noticias apresentadas por etapas confirmadas pela interface, com
+  cancelamento da sequencia quando a conversa e interrompida.
+- Marcacoes no Espectro por nomes de controles acessiveis, com tratamento
+  de alvos ambiguos e sem inventar coordenadas ou confirmar sucesso falso.
+- Protecao contra repetir envios pendentes ou de resultado incerto.
+- Monitor de resposta nao considera pacotes vazios ou pensamento interno
+  como progresso entregue ao usuario.
+- Instalador com verificacao, consentimento de atualizacao, aviso durante
+  o uso e preservacao de dados e da versao anterior para recuperacao.
+- Pacote instalado sem testes e relatorios de desenvolvimento; o codigo
+  completo, testes e documentacao continuam no repositorio.
+
+Atualizacao de manutencao, sem novo modo principal. Servicos externos ainda
+dependem de rede, disponibilidade, limites e credenciais de cada pessoa.
+A assinatura Equipe Dief e local e autoassinada; nao garante reputacao publica.
+
 ## 2.0.0
 
 - Modo Espectro com presenca transparente no desktop, observacao automatica da

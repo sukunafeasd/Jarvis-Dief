@@ -26,7 +26,9 @@ def memory_control(parameters,player=None,session_memory=None,**kwargs):
             identifier=parameters.get('id','')
             if parameters.get('selection') is not None:
                 from core.reference_resolver import resolve_selection
-                identifier=resolve_selection('memory',parameters['selection'],session_memory,player)['id']
+                selected=resolve_selection('memory',parameters['selection'],session_memory,player)['id']
+                if identifier and identifier!=selected:raise ValueError('ID da memoria e selecao nao correspondem. Confirme qual lembranca deseja consultar.')
+                identifier=selected
             records=[item for item in records if item['id']==identifier]
             if len(records)!=1:raise ValueError('Memória não encontrada. Consulte a lista atual; não inventei um registro.')
             result={'ok':True,'items':records,'complete':True,'source':'Memória persistida local'}

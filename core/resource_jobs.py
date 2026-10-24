@@ -13,7 +13,12 @@ def snapshot(identifier):
     with LOCK:
         if identifier not in JOBS:
             raise ValueError('Operacao desconhecida ou expirada.')
-        return copy.deepcopy(JOBS[identifier])
+        value=copy.deepcopy(JOBS[identifier])
+        value['ok']=True  # The lookup succeeded; state/result describe the operation.
+        value['job_id']=identifier
+        if isinstance(value.get('result'),dict) and value['result'].get('uncertain'):
+            value['uncertain']=True
+        return value
 
 
 def request(title, detail, callback):
@@ -47,4 +52,5 @@ def request(title, detail, callback):
     if '[CONFIRMATION_PENDING]' not in message:
         with LOCK:JOBS.pop(identifier,None)
         return {'ok':False,'completed':False,'error':message}
-    return {'ok':True,'completed':False,'state':'awaiting_confirmation','job_id':identifier,'message':message}
+    return {'ok':True,'completed':False,'state':'awaiting_confirmation','job_id':identifier,
+            'result_tool':'task_execution','message':message}

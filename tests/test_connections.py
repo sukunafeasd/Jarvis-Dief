@@ -21,7 +21,7 @@ class ConnectionTests(unittest.TestCase):
 
     def test_whatsapp_never_falls_back_to_windows_search(self):
         from actions.send_message import _send_whatsapp
-        with tempfile.TemporaryDirectory() as folder, patch("core.whatsapp_web.PROFILE", Path(folder)/"unlinked"), patch("core.whatsapp_web.transport", WhatsAppWeb()), patch("actions.send_message._desktop_send") as blind, patch("memory.config_manager.get_plugin_enabled",return_value=True):
+        with tempfile.TemporaryDirectory() as folder, patch("core.whatsapp_web.LEGACY_PROFILE", Path(folder)/"absent-legacy"), patch("core.whatsapp_web.PROFILE", Path(folder)/"unlinked"), patch("core.whatsapp_web.transport", WhatsAppWeb()), patch("actions.send_message._desktop_send") as blind, patch("memory.config_manager.get_plugin_enabled",return_value=True):
             result=_send_whatsapp("Contato de teste","Mensagem de teste")
             self.assertIn("Não confirmei",result)
             blind.assert_not_called()

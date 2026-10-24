@@ -13,16 +13,18 @@ PCM = bytes(range(256)) * 18 + bytes(range(192))
 
 
 class SelectionTests(unittest.TestCase):
-    def test_native_requires_explicit_selection(self):
+    def test_fish_requires_selection_and_credential(self):
         for config, expected in (({}, True), ({'speech_provider': 'fish_audio'}, True),
-                                 ({'speech_provider': 'unknown'}, True),
+                                 ({'speech_provider': 'unknown'}, False),
                                  ({'speech_provider': 'gemini'}, False)):
-            with patch('memory.config_manager.load_api_keys', return_value=config):
+            with patch('memory.config_manager.load_api_keys', return_value=config), patch.object(fish.integration_tokens,'read',return_value={'token':'synthetic'}):
                 self.assertEqual(fish.selected(), expected)
+        with patch('memory.config_manager.load_api_keys',return_value={'speech_provider':'fish_audio'}), patch.object(fish.integration_tokens,'read',return_value={}):
+            self.assertFalse(fish.selected())
 
-    def test_unreadable_settings_do_not_enable_native_fallback(self):
+    def test_unreadable_settings_do_not_select_unavailable_fish(self):
         with patch('memory.config_manager.load_api_keys', side_effect=ValueError('offline')):
-            self.assertTrue(fish.selected())
+            self.assertFalse(fish.selected())
 
 
 class ReceiverTests(unittest.IsolatedAsyncioTestCase):
@@ -44,14 +46,14 @@ class ReceiverTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await self.owner._receive_audio()
 
-    async def test_unavailable_fish_suppresses_native_and_reports_limitation(self):
+    async def test_unavailable_fish_uses_native_and_reports_limitation(self):
         await self.receive([response(data=PCM, server_content=content(
             output_transcription=NS(text='Resposta disponivel em texto.'), turn_complete=True))])
-        self.assertTrue(self.owner.audio_in_queue.empty())
+        audio=b''.join(self.owner.audio_in_queue.get_nowait() for _ in range(self.owner.audio_in_queue.qsize()))
+        self.assertEqual(audio,PCM)
         self.assertTrue(any('Voz Fish indisponivel' in call.args[0]
                             for call in self.owner.ui.write_log.call_args_list))
         self.assertIn('DIEF JARVIS: Resposta disponivel em texto.', self.owner._session_log)
-        self.owner.ui.narration_text.assert_not_called()
 
     async def test_explicit_native_selection_preserves_pcm(self):
         await self.receive([response(data=PCM)], selected=False)

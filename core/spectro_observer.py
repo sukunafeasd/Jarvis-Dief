@@ -8,6 +8,20 @@ from core import spectro_perception as perception
 _OBSERVATION_WORK=BoundedWork(workers=1,capacity=2,name='EspectroObservation')
 
 
+def matching_controls(controls,query):
+    from core.protocol_commands import normalize
+    import re
+    query=normalize(query)
+    candidates=[item for item in controls if item.get('control_id')]
+    exact=[item for item in candidates if normalize(item.get('name',''))==query]
+    if exact:return exact
+    words=re.findall(r'\w+',query)
+    if not words:return []
+    return [item for item in candidates if all(any(
+        actual==word or len(word)>=4 and actual.startswith(word)
+        for actual in re.findall(r'\w+',normalize(item.get('name','')))) for word in words)]
+
+
 class Observer:
     def __init__(self,store,clock=time.monotonic,automatic=False):
         self.automatic=automatic
@@ -104,9 +118,16 @@ class Observer:
             return {'ok':False,'error':'A janela mudou. Aguarde uma nova observacao.'}
         return dict(self.current)
     def permissions(self):return {'*'} if self.automatic else set(self.allowed)
-    def highlight(self,control_id):
+    def highlight(self,control_id=None,query=None):
         current=self.context()
         if not current.get('ok'):raise ValueError(current.get('error'))
+        if not control_id and isinstance(query,str) and query.strip():
+            matches=matching_controls(current.get('controls',[]),query)
+            if len(matches)!=1:
+                names=', '.join(str(item.get('name',''))[:60] for item in matches[:4])
+                raise ValueError('Encontrei mais de um alvo: '+names+'. Pergunte qual deles devo marcar.' if matches else
+                    'Esse alvo nao apareceu nos elementos acessiveis da janela atual. Consulte a tela novamente; nao afirme que marcou nem invente coordenadas.')
+            control_id=matches[0]['control_id']
         if not any(item.get('control_id')==control_id for item in current.get('controls',[])):raise ValueError('Consulte um controle real da observacao atual.')
         self.generation+=1;self.target=control_id;self.target_result=None;self.target_lost=False;self.target_error='';self.target_at=-float('inf')
     def forget(self,app):

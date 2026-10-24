@@ -128,6 +128,17 @@ class LocalOpeningTests(unittest.TestCase):
         self.assertTrue(veil.isVisible());self.assertFalse(veil.released)
         self.assertFalse(veil.timer.isActive())
 
+    def test_webgl_failure_uses_native_scene_instead_of_error_cover(self):
+        space=SimpleNamespace(hide=Mock())
+        core=SimpleNamespace(hide=Mock())
+        owner=SimpleNamespace(_scene_fallback_active=False,_space_view=space,
+            hud=SimpleNamespace(_spatial_core=core),_log=Mock())
+        ui.MainWindow._activate_scene_fallback(owner)
+        self.assertTrue(owner._scene_fallback_active)
+        space.hide.assert_called_once()
+        core.hide.assert_called_once()
+        owner._log.append_log.assert_called_once()
+
     def test_failed_preparation_never_emits_ready_even_with_stale_ready_flag(self):
         from core.spatial_view import SpatialCoreView
         owner=SimpleNamespace(_alive=lambda:True,failed=False,_ready=False,_created=0,

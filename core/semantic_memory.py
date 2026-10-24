@@ -13,28 +13,40 @@ SIGNATURE = None
 
 def run(parameters):
     global CLIENT, SIGNATURE, EMBEDDING
+    query = parameters.get('query', '')
+    if not isinstance(query,str) or not query.strip() or len(query.strip())>1200:
+        raise ValueError('Informe uma consulta de ate 1200 caracteres.')
+    query=query.strip()
+    limit=parameters.get('limit',5)
+    if type(limit) is not int:raise ValueError('Informe um limite inteiro de resultados.')
+    limit=max(1,min(10,limit))
     from memory.memory_manager import load_memory, _all_entries
-    from qdrant_client import QdrantClient, models
-    from fastembed import TextEmbedding
     records = _all_entries(load_memory(strict=True))
-    query = str(parameters.get('query', '')).strip()
-    if not query or len(query)>1200:raise ValueError('Informe uma consulta de ate 1200 caracteres.')
     if not records:return {'ok':True,'items':[],'complete':True,'source':'Memoria local'}
     if len(records)>1000:raise ValueError('Indice acima de mil registros; consulte memory_control por categoria.')
+    from qdrant_client import QdrantClient, models
+    from fastembed import TextEmbedding
     signature = hashlib.sha256(json.dumps(records,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     with LOCK:
         if EMBEDDING is None:EMBEDDING=TextEmbedding(model_name=MODEL)
         embedding=EMBEDDING
         if signature != SIGNATURE:
-            if CLIENT:CLIENT.close()
-            CLIENT = QdrantClient(location=':memory:')
+            candidate = QdrantClient(location=':memory:')
             texts = [str(entry.get('value','')) for _,_,entry in records]
-            vectors = list(embedding.embed(texts))
-            CLIENT.create_collection('facts',vectors_config=models.VectorParams(size=len(vectors[0]),distance=models.Distance.COSINE))
-            CLIENT.upsert('facts',points=[models.PointStruct(id=str(uuid.uuid5(uuid.NAMESPACE_URL,category+'/'+key)),vector=vector.tolist(),payload={'category':category,'key':key}) for (category,key,_),vector in zip(records,vectors)])
+            try:
+                vectors = list(embedding.embed(texts))
+                if len(vectors)!=len(records):
+                    raise ValueError('Indice incompleto: nem todas as memorias foram processadas. Indice anterior preservado.')
+                candidate.create_collection('facts',vectors_config=models.VectorParams(size=len(vectors[0]),distance=models.Distance.COSINE))
+                candidate.upsert('facts',points=[models.PointStruct(id=str(uuid.uuid5(uuid.NAMESPACE_URL,category+'/'+key)),vector=vector.tolist(),payload={'category':category,'key':key}) for (category,key,_),vector in zip(records,vectors)])
+            except BaseException:
+                candidate.close()
+                raise
+            previous=CLIENT;CLIENT=candidate
             SIGNATURE = signature
+            if previous:previous.close()
         vector = next(embedding.query_embed(query)).tolist()
-        hits = CLIENT.query_points('facts',query=vector,limit=max(1,min(10,int(parameters.get('limit',5))))).points
+        hits = CLIENT.query_points('facts',query=vector,limit=limit).points
         originals = {(category,key):entry for category,key,entry in records}
         items = [{'category':hit.payload['category'],'key':hit.payload['key'],'score':hit.score,
                   'record':originals[(hit.payload['category'],hit.payload['key'])]} for hit in hits]

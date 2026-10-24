@@ -83,6 +83,7 @@ class MidnightBriefingTests(unittest.IsolatedAsyncioTestCase):
             @classmethod
             def now(cls):return current[0]
         owner=JarvisLive.__new__(JarvisLive)
+        owner._response_epoch=0
         owner.ui=Mock();owner.session=Mock();owner.session.send_client_content=AsyncMock()
         owner._awake=True;owner._manual_rest=False;owner._is_speaking=False
         owner._played_audio_seconds=0.;owner._tail_active=lambda:False

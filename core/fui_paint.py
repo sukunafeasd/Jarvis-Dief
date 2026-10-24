@@ -47,3 +47,34 @@ def paint_core(painter,center,radius,seconds):
     painter.setBrush(Qt.BrushStyle.NoBrush);painter.setPen(QPen(QColor(72,209,230,100),.8))
     painter.drawEllipse(QRectF(cx-radius*1.12,cy+radius*1.26,radius*2.24,9))
     painter.restore()
+
+
+def paint_entry_core(painter,center,radius,seconds):
+    from core.fui_geometry import entry_lines
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    for size,alpha in ((1.2,55),(.7,90),(.32,200)):
+        glow=QRadialGradient(center,radius*size)
+        glow.setColorAt(0,QColor(255,165,120,alpha))
+        glow.setColorAt(.35,QColor(255,55,75,alpha//2))
+        glow.setColorAt(1,QColor(255,40,65,0))
+        painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(glow)
+        painter.drawEllipse(center,radius*size,radius*size)
+    lines,vertices=entry_lines(seconds)
+    for a,b,kind in sorted(lines,key=lambda item:item[0][2]+item[1][2]):
+        color=QColor('#b4f0ff' if kind=='orbit' else '#ffe1b8' if kind=='heart' else '#ff5262')
+        color.setAlpha(210 if kind=='heart' else max(35,min(240,int(125+(a[2]+b[2])*48))))
+        painter.setPen(QPen(color,1.15 if kind=='heart' else .8))
+        painter.drawLine(QPointF(center.x()+a[0]*radius,center.y()+a[1]*radius),QPointF(center.x()+b[0]*radius,center.y()+b[1]*radius))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for i in range(3):
+        r=radius*(1.34+i*.08)
+        painter.setPen(QPen(QColor('#32667d' if i else '#ff5262'),1.3))
+        painter.drawArc(QRectF(center.x()-r,center.y()-r,2*r,2*r),int((seconds*8+i*113)*16),int((90-i*17)*16))
+    for i,p in enumerate(vertices):
+        if i%7:continue
+        painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor('#ffe1b8'))
+        painter.drawEllipse(QPointF(center.x()+p[0]*radius,center.y()+p[1]*radius),1.3,1.3)
+    painter.setBrush(Qt.BrushStyle.NoBrush);painter.setPen(QPen(QColor('#4c9db3'),.8))
+    painter.drawEllipse(QRectF(center.x()-radius*1.2,center.y()+radius*1.38,radius*2.4,12))
+    painter.restore()

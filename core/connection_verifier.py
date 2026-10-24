@@ -25,7 +25,10 @@ def saved_checks(plugins):
             value = transport.call('status')
             connected = bool(value.get('connected'))
             return {'ok': connected, 'state': 'connected' if connected else 'auth_required' if value.get('needs_link') else 'error',
-                    'message': 'Sessao WhatsApp confirmada.' if connected else 'Nao foi possivel confirmar a sessao WhatsApp. Teste ou conecte novamente.'}
+                    # Keep the actionable result from the transport. Replacing
+                    # every failure with the same generic sentence hid whether
+                    # QR linking, browser startup, or the network was at fault.
+                    'message': 'Sessao WhatsApp confirmada.' if connected else str(value.get('error') or value.get('status') or 'Nao foi possivel confirmar a sessao WhatsApp.')[:500]}
         yield 'whatsapp', whatsapp
     for plugin in plugins:
         name = plugin.get('name')
@@ -92,7 +95,12 @@ class ConnectionVerifier:
                 with self.lock:self.inflight.discard(provider)
                 return
             try:
-                timeout = threading.Timer(60, lambda: self.checks.finish(provider, generation, 'error', 'A verificacao demorou demais. Teste novamente para confirmar a conexao.'))
+                # Restoring a persistent WhatsApp Web profile can legitimately
+                # include browser startup and page hydration. Its transport is
+                # bounded at 75s, so a 60s outer watchdog fabricated failures
+                # before the real result could arrive.
+                timeout_seconds=105 if provider=='whatsapp' else 60
+                timeout = threading.Timer(timeout_seconds, lambda: self.checks.finish(provider, generation, 'error', 'A verificacao demorou demais. Teste novamente para confirmar a conexao.'))
                 timeout.daemon = True
                 timeout.start()
                 try:

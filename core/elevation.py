@@ -54,10 +54,10 @@ def require_admin():
     root.title('DIEF JARVIS')
     root.configure(bg='#050d12')
     root.resizable(False, False)
-    width, height = 660, 440
+    width, height = 840, 580
     root.geometry(f'{width}x{height}+{max(0,(root.winfo_screenwidth()-width)//2)}+{max(0,(root.winfo_screenheight()-height)//2)}')
     surface=BootstrapSurface(root,width,height,mode='admin',reduced=reduced);notice=surface.notice
-    notice.configure(text='Reinicie e confirme a solicitação do Windows para continuar.',wraplength=width-80)
+    notice.configure(text='Aguardando sua autorização. Nenhuma alteração foi iniciada.')
     started=time.monotonic();after_id=None;closed=False
     def close():
         nonlocal closed
@@ -73,7 +73,7 @@ def require_admin():
     button=tk.Button(root, text='Reiniciar como administrador', command=restart, bg='#075393', fg='#edfaff',
               activebackground='#167bb3',activeforeground='#ffffff',highlightbackground='#91d9ff',highlightthickness=1,
               relief='flat', padx=18, pady=10, font=('Segoe UI',11))
-    surface.canvas.create_window(width/2,377,window=button,width=width-80,height=40)
+    surface.canvas.create_window(surface.rail+24,350,window=button,anchor='nw',width=width-surface.rail-60,height=44)
     def tick():
         nonlocal after_id
         if closed:return

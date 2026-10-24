@@ -15,6 +15,8 @@ def request(text,active=False):
     if value in ('volte a observar','retome a observacao','continue observando'):return 'resume_observation',{}
     if value in ('o que voce esta vendo','o que esta vendo','o que voce consegue ver','analise esta janela','analise essa janela'):return 'context',{}
     if not active:return None
+    if value in ('desfaca o ultimo ajuste do holograma','desfaz o ultimo ajuste do holograma','restaure a posicao anterior do holograma'):
+        return 'undo_presence',{}
     value=re.sub(r'^(?:(?:por favor|pode|poderia|quero que voce|quero que vc|quero)\s+)+','',value)
     value=re.sub(r'[, ]+por favor$','',value)
     for before,after in (('ficar','fique'),('diminuir','diminua'),('aumentar','aumente'),('mover','mova'),('se mover','se mova'),('acompanhar','acompanhe'),('observar','observe'),('monitorar','monitore')):
@@ -22,6 +24,12 @@ def request(text,active=False):
     if value=='nao me interrompa':return 'quiet',{'enabled':True}
     if value in ('nao observe minha tela','nao acompanhe minha tela','pare de observar o computador'):return 'privacy',{}
     if re.match(r'^(?:nao|como|porque|por que|se(?!\s+mova\b)|e se|voce consegue)\b',value):return None
+    marking=re.fullmatch(r'(?:marque|marca|marcar|destaque|destaca|destacar|circule|circula|sublinhe) (?:o |a )?(?:(?:icone|botao|objeto|elemento) (?:de |do |da )?)?(.+?)(?: (?:na|nessa|nesta) (?:aba|janela|tela)(?: (?:atual|ativa|aberta|em primeiro plano))?)?',value)
+    if marking:
+        query=marking[1].strip(' "\'')
+        if re.match(r'^(?:todos|todas|tudo)\b',query):return None
+        if query:
+            return 'highlight',{'query':query,'shape':'circle' if value.startswith(('circule ','circula ')) else 'underline' if value.startswith('sublinhe ') else 'outline'}
     if value in ('diminua','diminui','reduza','diminua seu tamanho','diminua o tamanho','diminua o seu tamanho','diminua o holograma','diminui o tamanho','reduza o tamanho','fica um pouco menor','fique um pouco menor','fique mais pequeno'):
         return 'scale',{'factor':.8}
     if value in ('aumente','aumenta','aumente seu tamanho','aumenta o tamanho','aumente o tamanho'):

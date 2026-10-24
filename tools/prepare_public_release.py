@@ -43,6 +43,13 @@ def private_literals(source):
 
 def audit(source,files,private=(),allow_document_paths=False):
     findings=[]
+    required_scene=('core/spatial/index.html','core/spatial/space.html',
+        'core/spatial/viewer.mjs','core/spatial/space.mjs',
+        'core/spatial/vendor/package/build/three.module.js',
+        'core/spatial/vendor/package/build/three.core.js')
+    present={path.as_posix() for path in files}
+    for name in required_scene:
+        if name not in present:findings.append((name,'recurso 3D obrigatorio ausente'))
     for relative in files:
         name=relative.as_posix();path=source/relative
         if path.suffix.lower() in ('.png','.ico','.jpg','.jpeg','.webp','.woff2'):continue

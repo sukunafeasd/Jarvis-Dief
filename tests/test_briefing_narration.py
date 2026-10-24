@@ -50,6 +50,7 @@ class DirectBriefingTests(unittest.IsolatedAsyncioTestCase):
         from main import JarvisLive
         owner = JarvisLive.__new__(JarvisLive)
         owner.session = Mock(send_client_content=AsyncMock())
+        owner._response_epoch=0
         owner._manual_rest = False
         owner._awake = True
         owner._is_speaking = False
@@ -72,6 +73,7 @@ class DirectBriefingTests(unittest.IsolatedAsyncioTestCase):
         from main import JarvisLive
         owner = JarvisLive.__new__(JarvisLive)
         owner.session = Mock(send_client_content=AsyncMock())
+        owner._response_epoch=0
         owner._manual_rest = False
         owner._awake = True
         owner._is_speaking = False
@@ -98,6 +100,7 @@ class DirectBriefingTests(unittest.IsolatedAsyncioTestCase):
         from main import JarvisLive
         owner = JarvisLive.__new__(JarvisLive)
         owner.session = Mock(send_client_content=AsyncMock())
+        owner._response_epoch=0
         owner._manual_rest = False
         owner._awake = True
         owner._is_speaking = False
