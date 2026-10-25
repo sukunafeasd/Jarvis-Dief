@@ -2,12 +2,14 @@
 from __future__ import annotations
 import base64
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
+import ssl
 import subprocess
 import tempfile
 import threading
@@ -55,7 +57,8 @@ def official_url(value):
 
 
 def request_json(url, limit=1024*1024):
-    request = urllib.request.Request(url, headers={'User-Agent':'DIEF-JARVIS/1.0', 'Accept':'application/vnd.github+json'})
+    request = urllib.request.Request(url, headers={'User-Agent':'DIEF-JARVIS/1.0', 'Accept':'application/vnd.github+json',
+        'Cache-Control':'no-cache', 'Pragma':'no-cache'})
     with urllib.request.urlopen(request, timeout=20) as response:
         data = response.read(limit + 1)
     if len(data) > limit: raise ValueError('Resposta de atualizacao muito grande.')
@@ -63,7 +66,13 @@ def request_json(url, limit=1024*1024):
 
 
 def latest_release():
-    info = request_json(f'https://api.github.com/repos/{REPOSITORY}/releases/latest')
+    try:
+        info = request_json(f'https://api.github.com/repos/{REPOSITORY}/releases/latest')
+    except urllib.error.HTTPError as error:
+        if error.code not in (403,429,500,502,503,504):raise
+        return latest_signed_release()
+    except (urllib.error.URLError,TimeoutError):
+        return latest_signed_release()
     if info.get('draft') or info.get('prerelease'): raise ValueError('Release nao estavel.')
     asset = next(a for a in info['assets'] if a['name'] == MANIFEST_ASSET)
     body = verified_manifest(request_json(official_url(asset['browser_download_url']), 65536))
@@ -78,20 +87,57 @@ def latest_release():
     return body
 
 
+def latest_signed_release():
+    """GitHub's official stable asset route also works without the API quota."""
+    body = verified_manifest(request_json(
+        f'https://github.com/{REPOSITORY}/releases/latest/download/{MANIFEST_ASSET}',65536))
+    tag='v'+body['version']
+    for key in ('application','runtime','launcher'):
+        item=body[key]
+        item['url']=official_url(f'https://github.com/{REPOSITORY}/releases/download/{tag}/{item["name"]}')
+    return body
+
+
+def _retryable_download_error(error):
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code in (408,429,500,502,503,504)
+    if isinstance(error, urllib.error.URLError):
+        return not isinstance(error.reason, ssl.SSLError)
+    return isinstance(error,(TimeoutError,ConnectionError,http.client.IncompleteRead))
+
+
 def download(item, target, progress, stop):
+    for attempt in range(3):
+        if stop.is_set():raise InterruptedError('Instalacao cancelada.')
+        try:
+            return _download_once(item,target,progress,stop)
+        except Exception as error:
+            if attempt==2 or not _retryable_download_error(error):raise
+            progress(f'Conexao interrompida. Nova tentativa {attempt+2}/3')
+            if stop.wait(2**attempt):raise InterruptedError('Instalacao cancelada.')
+
+
+def _download_once(item, target, progress, stop):
     digest = hashlib.sha256(); size = 0
     request = urllib.request.Request(official_url(item['url']), headers={'User-Agent':'DIEF-JARVIS/1.0'})
+    created=False
     try:
-        with urllib.request.urlopen(request, timeout=30) as response, Path(target).open('xb') as output:
-            while chunk := response.read(256*1024):
-                if stop.is_set(): raise InterruptedError('Instalacao cancelada.')
-                size += len(chunk)
-                if size > item['size'] or size > MAX_DOWNLOAD: raise ValueError('Pacote excedeu o tamanho informado.')
-                digest.update(chunk); output.write(chunk)
-                progress(f'Baixando {size*100//item["size"]}%')
-        if size != item['size'] or digest.hexdigest() != item['sha256']: raise ValueError('Integridade do download nao confirmada.')
+        with Path(target).open('xb') as output:
+            created=True
+            with urllib.request.urlopen(request, timeout=30) as response:
+                while True:
+                    if stop.is_set():raise InterruptedError('Instalacao cancelada.')
+                    chunk=response.read(256*1024)
+                    if not chunk:break
+                    size += len(chunk)
+                    if size > item['size'] or size > MAX_DOWNLOAD: raise ValueError('Pacote excedeu o tamanho informado.')
+                    digest.update(chunk); output.write(chunk)
+                    progress(f'Baixando {size*100//item["size"]}%')
+        if stop.is_set():raise InterruptedError('Instalacao cancelada.')
+        if size < item['size']:raise http.client.IncompleteRead(b'',item['size']-size)
+        if digest.hexdigest() != item['sha256']: raise ValueError('Integridade do download nao confirmada.')
     except Exception:
-        Path(target).unlink(missing_ok=True)
+        if created:Path(target).unlink(missing_ok=True)
         raise
 
 
@@ -208,11 +254,14 @@ class Installation:
         if not path.resolve().is_relative_to(self.root) or path.resolve()==self.root:raise ValueError('Limpeza fora da instalacao.')
         if path.exists():shutil.rmtree(path)
 
-    def install(self, release, progress, stop):
+    def install(self, release, progress, stop, *, retry_rejected=False):
         number = release['version']; version(number)
         state = self.state()
-        if state.get('rejected') == number and state.get('current'):return self.application(state['current'])
-        if state.get('current') and version(number) <= version(state['current']): return self.application(state['current'])
+        if state.get('rejected') == number and state.get('current') and not retry_rejected:
+            return self.application(state['current'])
+        if state.get('current') and version(number) <= version(state['current']):
+            if number==state['current']:self.ensure_launcher(release,progress,stop)
+            return self.application(state['current'])
         with tempfile.TemporaryDirectory(prefix='jarvis-stage-', dir=self.root) as temporary:
             stage = Path(temporary)
             for key in ('runtime','application'):
@@ -222,7 +271,8 @@ class Installation:
                 extract(package, stage/key)
             launcher_next=None
             if getattr(__import__('sys'),'frozen',False):
-                running=Path(__import__('sys').executable)
+                running=self.root/'DIEF JARVIS.exe'
+                if not running.exists():running=Path(__import__('sys').executable)
                 if hashlib.sha256(running.read_bytes()).hexdigest()!=release['launcher']['sha256']:
                     download(release['launcher'],stage/'launcher.exe',lambda text:progress('Atualizações',text,'working'),stop)
                     launcher_next='launcher-next-'+uuid.uuid4().hex+'.exe'
@@ -274,6 +324,29 @@ class Installation:
                 self.journal.unlink(missing_ok=True)
                 raise
             return destination
+
+    def ensure_launcher(self,release,progress,stop):
+        """Repair the updater even when application files are already current."""
+        if not getattr(__import__('sys'),'frozen',False):return False
+        state=self.state()
+        if state.get('current')!=release['version']:return False
+        expected=release['launcher']['sha256']
+        target=self.root/'DIEF JARVIS.exe'
+        if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest()==expected:return False
+        pending=state.get('pending_launcher') or {}
+        name=pending.get('name','')
+        if re.fullmatch(r'launcher-next-[a-f0-9]{32}\.exe',name) and pending.get('sha256')==expected:
+            path=self.root/name
+            if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==expected:return False
+        path=self.root/('launcher-next-'+uuid.uuid4().hex+'.exe')
+        try:
+            download(release['launcher'],path,lambda text:progress('Atualizações',text,'working'),stop)
+            state['pending_launcher']={'name':path.name,'sha256':expected}
+            atomic_json(self.state_file,state)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        return True
 
     def confirm(self):
         state = self.state(); state['pending'] = False; atomic_json(self.state_file, state)

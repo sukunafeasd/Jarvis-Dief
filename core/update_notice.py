@@ -21,7 +21,7 @@ class UpdateNotice(QObject):
         self.timer=QTimer(self)
         self.timer.timeout.connect(self.poll)
         if os.environ.get('DIEF_UPDATE_REQUEST') and os.environ.get('QT_QPA_PLATFORM')!='offscreen':
-            self.timer.start(60000)
+            self.timer.start(2000)
 
     def poll(self):
         release=self.watch.tick()

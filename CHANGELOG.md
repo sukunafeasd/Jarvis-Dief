@@ -1,5 +1,25 @@
 # Historico
 
+## 2.1.1 - Recuperacao do atualizador
+
+- Consulta alternativa ao manifesto assinado no GitHub quando a API esta
+  temporariamente indisponivel ou limitada; verificacoes sem cache HTTP.
+- Novas tentativas em segundo plano com intervalo progressivo e aviso agil.
+- Downloads temporariamente interrompidos podem tentar novamente ate tres
+  vezes. Hash incorreto, certificado invalido e falhas permanentes nao sao ignorados.
+- Arquivos preexistentes no destino nao sao apagados durante falhas de download.
+- Versoes rejeitadas podem ser tentadas novamente mediante confirmacao.
+- Reparacao do inicializador mesmo quando a aplicacao ja esta atualizada.
+- Instaladores externos nao sobrescrevem diretamente um EXE instalado.
+- Troca atomica do inicializador, copia anterior recuperavel, teste de abertura
+  sem contas e restauracao se esse teste falhar.
+- Registros locais de falhas e mensagens que distinguem recuperacao efetiva
+  de recuperacao indisponivel. Dados pessoais permanecem separados.
+
+O teste do inicializador verifica seu bootstrap, nao todas as funcoes do app.
+Rede, armazenamento, permissoes e protecoes do Windows ainda podem impedir
+uma atualizacao; nesses casos nao se deve anunciar sucesso.
+
 ## 2.1.0 - Reparos e estabilidade
 
 - Reune as correcoes locais posteriores a 2.0: voz, noticias, contexto,

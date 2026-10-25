@@ -79,6 +79,25 @@ class OfficialDistributionTests(unittest.TestCase):
         with zipfile.ZipFile(body['application']['url'],'w') as file:file.writestr('main.py','broken')
         with self.assertRaises(ValueError):self.install(body)
         self.assertEqual(self.installation.state()['current'],'1.0.0')
+    def test_rejected_version_requires_explicit_retry_and_preserves_data(self):
+        self.install(self.package());self.installation.confirm()
+        personal=self.installation.root/'data/config/user.json'
+        personal.write_text('{"keep":true}')
+        next_release=self.package('1.0.1')
+        self.install(next_release)
+        self.assertTrue(self.installation.rollback())
+        with patch('core.distribution.download',side_effect=OSError('offline')) as fetch:
+            self.installation.install(next_release,lambda *args:None,self.stop)
+            fetch.assert_not_called()
+            with self.assertRaises(OSError):
+                self.installation.install(next_release,lambda *args:None,self.stop,retry_rejected=True)
+        self.assertEqual(self.installation.state()['rejected'],'1.0.1')
+        self.assertEqual(self.installation.state()['current'],'1.0.0')
+        with patch('core.distribution.download',side_effect=self.local_download):
+            self.installation.install(next_release,lambda *args:None,self.stop,retry_rejected=True)
+        self.assertEqual(self.installation.state()['current'],'1.0.1')
+        self.assertTrue(self.installation.state()['pending'])
+        self.assertEqual(personal.read_text(),'{"keep":true}')
     def test_download_integrity_and_cancellation_remove_partial_file(self):
         data=b'hello';item={'name':'a.zip','url':f'https://github.com/{REPOSITORY}/releases/download/v1.0.0/a.zip',
             'size':len(data),'sha256':hashlib.sha256(data).hexdigest()};target=self.base/'download.zip'

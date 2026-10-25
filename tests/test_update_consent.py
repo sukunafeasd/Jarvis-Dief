@@ -50,9 +50,10 @@ class UpdateConsentTests(unittest.TestCase):
             with self.subTest(state=state, latest=latest):
                 self.assertEqual(release_status(state, {'version':latest})[0], expected)
 
-    def run_prepare(self, accept=True, failure=False, offline=False):
+    def run_prepare(self, accept=True, failure=False, offline=False, rejected=False):
         install=Mock()
         install.state.return_value={'current':'2.0.12'}
+        if rejected:install.state.return_value['rejected']='2.0.13'
         install.application.return_value=Path('old-app')
         install.prepare_python.return_value=Path('python')
         install.install.return_value=Path('new-app')
@@ -64,6 +65,7 @@ class UpdateConsentTests(unittest.TestCase):
         with patch.object(desktop_launcher,'Installation',return_value=install), \
              patch.object(desktop_launcher,'prepare_dependencies'), \
              patch.object(desktop_launcher,'run_probe'), \
+             patch('core.update_diagnostics.record_failure'), \
              patch.object(desktop_launcher,'install_launcher'):
             result=desktop_launcher.prepare(Path('root'),progress,threading.Event(),fetch=fetch,approve_update=consent)
         return install,consent,progress,result
@@ -78,6 +80,23 @@ class UpdateConsentTests(unittest.TestCase):
         install,consent,progress,result=self.run_prepare()
         install.install.assert_called_once()
         self.assertEqual(result[2],Path('new-app'))
+
+    def test_rejected_update_is_only_retried_after_consent(self):
+        install,consent,progress,result=self.run_prepare(rejected=True)
+        self.assertTrue(consent.call_args.args[0]['retry_rejected'])
+        self.assertTrue(install.install.call_args.kwargs['retry_rejected'])
+        self.assertNotIn('retry_rejected',install.install.call_args.args[0])
+
+    def test_declining_rejected_update_keeps_previous_version(self):
+        install,consent,progress,result=self.run_prepare(rejected=True,accept=False)
+        consent.assert_called_once()
+        install.install.assert_not_called()
+        self.assertEqual(result[2],Path('old-app'))
+
+    def test_failed_retry_remains_warning_not_success(self):
+        install,consent,progress,result=self.run_prepare(rejected=True,failure=True)
+        self.assertEqual(progress.call_args.args[2],'warning')
+        self.assertEqual(result[2],Path('old-app'))
 
     def test_download_failure_is_not_overwritten_by_success(self):
         install,consent,progress,result=self.run_prepare(failure=True)

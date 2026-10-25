@@ -20,6 +20,18 @@ def clean_child_environment():
     return environment()
 
 
+def recovery_message(installation):
+    try:
+        restored=installation.rollback()
+    except Exception as error:
+        from core.update_diagnostics import record_failure
+        record_failure(installation.root,'rollback',error)
+        return 'A recuperacao automatica nao foi concluida. Nao apague seus dados; consulte os registros na pasta logs.'
+    if restored:
+        return 'A versao anterior foi restaurada. Abra novamente; os registros estao na pasta logs.'
+    return 'Nao ha uma versao anterior disponivel para restaurar. Seus dados nao foram apagados; consulte a pasta logs.'
+
+
 def run_probe(python, application, progress, stop, env):
     from core.installer_process import spawn,close_tree
     process = spawn([str(python),'-m','core.distribution_probe'], cwd=application, env=env,
@@ -49,7 +61,12 @@ def run_probe(python, application, progress, stop, env):
 def install_launcher(root,shortcut_folder=None):
     if not getattr(sys,'frozen',False): return
     destination=root/'DIEF JARVIS.exe'
-    if Path(sys.executable).resolve()!=destination.resolve(): shutil.copy2(sys.executable,destination)
+    if not destination.exists():
+        temporary=root/('launcher-initial-'+uuid.uuid4().hex+'.tmp')
+        try:
+            shutil.copy2(sys.executable,temporary)
+            os.replace(temporary,destination)
+        finally:temporary.unlink(missing_ok=True)
     shortcut=(Path(shortcut_folder) if shortcut_folder else root)/'DIEF JARVIS.lnk'
     if shortcut_folder:Path(shortcut_folder).mkdir(parents=True,exist_ok=True)
     # This helper receives paths as arguments; it never interpolates them as commands.
@@ -86,7 +103,9 @@ def prepare(root, progress, stop, fetch=latest_release,shortcut_folder=None,appr
     try:
         release=bounded_release(fetch,stop) if fetch is latest_release and state.get('current') and not state.get('pending') else fetch()
     except InterruptedError:raise
-    except Exception:
+    except Exception as error:
+        from core.update_diagnostics import record_failure
+        record_failure(root,'lookup',error,state.get('current'))
         if not state.get('current'): raise RuntimeError('Nao foi possivel obter a versao oficial. Verifique a internet e tente novamente.')
         progress('Atualizações','Nao foi possivel verificar. Versao instalada preservada','warning')
         release=None
@@ -95,18 +114,34 @@ def prepare(root, progress, stop, fetch=latest_release,shortcut_folder=None,appr
         status,message=release_status(state,release)
         progress('Atualizações',message,'warning' if status=='rejected' else 'working' if status in {'available','first_install'} else 'ok')
         should_install=status in {'available','first_install'}
-        if status=='available' and approve_update is not None:
-            should_install=approve_update(release)
+        if status in {'available','rejected'} and approve_update is not None:
+            offered={**release,'retry_rejected':True} if status=='rejected' else release
+            should_install=approve_update(offered)
             if stop.is_set():raise InterruptedError('Atualizacao cancelada.')
             if not should_install:
                 progress('Atualizações','Atualizacao adiada. Versao atual preservada','warning')
         if not should_install:
             application=installation.application(state['current'])
+            if status=='current' and state['current']==release['version']:
+                try:
+                    installation.ensure_launcher(release,progress,stop)
+                except InterruptedError:
+                    raise
+                except Exception as error:
+                    from core.update_diagnostics import record_failure
+                    record_failure(root,'launcher_repair',error,current=state['current'],target=release['version'])
+                    progress('Atualizações','Reparo do inicializador adiado. Versao atual preservada','warning')
         else:
-            try:application=installation.install(release,progress,stop)
+            try:
+                if status=='rejected':
+                    application=installation.install(release,progress,stop,retry_rejected=True)
+                else:
+                    application=installation.install(release,progress,stop)
             except InterruptedError:raise
-            except Exception:
+            except Exception as error:
                 state=installation.state()
+                from core.update_diagnostics import record_failure
+                record_failure(root,'install',error,state.get('current'),release['version'])
                 if not state.get('current'):raise
                 application=installation.application(state['current'])
                 progress('Atualizações','Atualizacao nao concluida. Versao anterior preservada','warning')
@@ -180,9 +215,13 @@ def main():
     parser.add_argument('--prepare-only',action='store_true');parser.add_argument('--validate-artifacts',type=Path)
     parser.add_argument('--local-artifacts',type=Path)
     parser.add_argument('--update-version')
+    parser.add_argument('--launcher-probe')
     args=parser.parse_args()
     if args.validate_artifacts and not args.root:raise ValueError('O teste exige uma pasta isolada explicita.')
     root=(args.root or Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'DIEF JARVIS').resolve()
+    if args.launcher_probe:
+        from core.launcher_probe import run
+        return run(root,args.launcher_probe)
     from core.elevation import require_admin
     if not require_admin(): return 0
     mutex=None
@@ -209,8 +248,9 @@ def main():
     install_button=tk.Button(window,text='Instalar atualizacao',command=lambda:choose_update(True),bg='#123d54',fg='#edfaff',relief='flat')
     later_button=tk.Button(window,text='Continuar sem atualizar',command=lambda:choose_update(False),bg='#233348',fg='#edfaff',relief='flat')
     def approve_update(release):
-        if args.update_version==release['version']:return True
-        decision.clear();choice.clear();events.put(('_update_available',release['version'],''))
+        retry=bool(release.get('retry_rejected'))
+        if args.update_version==release['version'] and not retry:return True
+        decision.clear();choice.clear();events.put(('_update_available',release['version'],'retry' if retry else ''))
         while not decision.wait(.1):
             if stop.is_set():raise InterruptedError('Atualizacao cancelada.')
         return choice.get('accepted',False)
@@ -260,7 +300,9 @@ def main():
             elif name=='_error':
                 surface.notice.configure(text=text,fg='#ffb384');button.place(**surface.retry_position)
             elif name=='_update_available':
-                surface.notice.configure(text='Versao '+text+' disponivel. Seus dados e conexoes serao preservados.')
+                surface.notice.configure(text=('A versao '+text+' falhou anteriormente. Tentar instalar novamente?' if state=='retry'
+                    else 'Versao '+text+' disponivel. Seus dados e conexoes serao preservados.'))
+                install_button.configure(text='Tentar instalar novamente' if state=='retry' else 'Instalar atualizacao')
                 install_button.place(x=32,y=540,width=220,height=28)
                 later_button.place(x=266,y=540,width=250,height=28)
             else:surface.update_status(name,text,state)
@@ -300,8 +342,8 @@ def main():
                 validation['application_opened']=True;atomic_json(root/'validation.json',validation)
         else:
             close_tree(process)
-            installation.rollback()
-            ctypes.windll.user32.MessageBoxW(None,'A abertura nao foi concluida. A versao anterior foi preservada. Abra novamente; o registro esta na pasta logs.','DIEF JARVIS',0x10)
+            message=recovery_message(installation)
+            ctypes.windll.user32.MessageBoxW(None,'A abertura nao foi concluida. '+message,'DIEF JARVIS',0x10)
             return 1
         code=process.wait()
         if validation:
@@ -309,8 +351,8 @@ def main():
             validation['exit_code']=code;validation['application_opened']=not bool(code)
             atomic_json(root/'validation.json',validation)
         if code:
-            installation.rollback()
-            ctypes.windll.user32.MessageBoxW(None,'O Jarvis encerrou inesperadamente. A versao anterior foi preservada; consulte a pasta logs.','DIEF JARVIS',0x10)
+            message=recovery_message(installation)
+            ctypes.windll.user32.MessageBoxW(None,'O Jarvis encerrou inesperadamente. '+message,'DIEF JARVIS',0x10)
             return 1
         from core.launcher_update import schedule
         restart_version=None
